@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is board owner
+    function isBoardOwner(boardId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/boards/$(boardId)).data.ownerId == request.auth.uid;
+    }
+    
+    // Helper function to check if user is board member
+    function isBoardMember(boardId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid));
+    }
+    
+    // Helper function to check if user can edit board
+    function canEditBoard(boardId) {
+      return isAuthenticated() && (
+        isBoardOwner(boardId) ||
+        (isBoardMember(boardId) && 
+         get(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid)).data.role == 'edit')
+      );
+    }
+    
+    // Boards collection
+    match /boards/{boardId} {
+      allow read: if isBoardOwner(boardId) || isBoardMember(boardId);
+      allow create: if isAuthenticated();
+      allow update, delete: if isBoardOwner(boardId);
+      
+      // Board members
+      match /members/{memberId} {
+        allow read: if isBoardMember(boardId);
+        allow write: if isBoardOwner(boardId);
+      }
+      
+      // Board invites
+      match /invites/{inviteId} {
+        allow read: if isAuthenticated();
+        allow create: if isBoardOwner(boardId);
+        allow update: if isAuthenticated() && resource.data.email == request.auth.token.email;
+        allow delete: if isBoardOwner(boardId);
+      }
+      
+      // Board objects
+      match /objects/{objectId} {
+        allow read: if isBoardMember(boardId);
+        allow write: if canEditBoard(boardId);
+      }
+    }
+  }
+}
