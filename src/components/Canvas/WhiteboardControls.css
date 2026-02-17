@@ -1,0 +1,76 @@
+.whiteboard-controls {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.whiteboard-control-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.whiteboard-control-btn:hover {
+  background: #f3f4f6;
+}
+
+.whiteboard-control-btn.active {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.whiteboard-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.whiteboard-zoom-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.whiteboard-zoom-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.whiteboard-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.whiteboard-zoom-value {
+  min-width: 48px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  text-align: center;
+}

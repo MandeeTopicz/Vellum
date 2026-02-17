@@ -8,6 +8,8 @@
   justify-content: center;
   min-height: 100vh;
   margin: 0;
+  background: #f5f5f5;
+  color: #374151;
 }
 
 .logo {
@@ -17,7 +19,7 @@
   transition: filter 300ms;
 }
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+  filter: drop-shadow(0 0 2em #4f46e5aa);
 }
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
@@ -43,5 +45,5 @@
 }
 
 .read-the-docs {
-  color: #888;
+  color: #6b7280;
 }

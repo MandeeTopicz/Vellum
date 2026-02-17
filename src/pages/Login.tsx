@@ -21,7 +21,7 @@ export default function Login() {
       } else {
         await signIn(email, password)
       }
-      navigate('/', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Something went wrong'
       if (message.includes('password')) {

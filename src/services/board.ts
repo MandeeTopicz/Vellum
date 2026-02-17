@@ -1,17 +1,20 @@
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
   addDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
+  onSnapshot,
   query,
   where,
-  collectionGroup,
   serverTimestamp,
   type DocumentReference,
   type Timestamp,
+  type Unsubscribe,
 } from 'firebase/firestore'
 import { db, auth } from './firebase'
 import type { Board, BoardDoc, BoardMember, BoardMemberRole } from '../types'
@@ -50,6 +53,7 @@ export async function createBoard(name: string): Promise<string> {
   }
 
   const ref = await addDoc(boardsCol(), boardDoc)
+  console.log('[board] createBoard saved to Firestore:', { boardId: ref.id, name, ownerId: user.uid })
   await setDoc(memberRef(ref.id, user.uid), {
     userId: user.uid,
     email: user.email ?? '',
@@ -83,56 +87,133 @@ export async function updateBoard(
   })
 }
 
+export async function deleteBoard(boardId: string): Promise<void> {
+  const user = auth.currentUser
+  if (!user) throw new Error('Not authenticated')
+  const board = await getBoard(boardId)
+  if (!board || board.ownerId !== user.uid) {
+    throw new Error('Only the board owner can delete it')
+  }
+  await deleteDoc(boardRef(boardId))
+}
+
 export async function getBoardsForUser(): Promise<Board[]> {
   const user = auth.currentUser
-  if (!user) return []
+  console.log('[board] getBoardsForUser: current user', user ? { uid: user.uid, email: user.email } : null)
+  if (!user) {
+    console.log('[board] getBoardsForUser: no user, returning []')
+    return []
+  }
 
-  const owned = await getDocs(
-    query(boardsCol(), where('ownerId', '==', user.uid))
-  )
+  try {
+    const q = query(boardsCol(), where('ownerId', '==', user.uid))
+    console.log('[board] getBoardsForUser: executing query boards where ownerId ==', user.uid)
+    const snap = await getDocs(q)
+    console.log('[board] getBoardsForUser: snapshot size', snap.size, 'docs:', snap.docs.map((d) => ({ id: d.id, data: d.data() })))
 
-  const memberSnaps = await getDocs(
-    query(
-      collectionGroup(db, MEMBERS),
-      where('userId', '==', user.uid)
-    )
-  )
+    const boards: Board[] = snap.docs.map((d) => {
+      const data = d.data() as Omit<BoardDoc, 'createdAt' | 'updatedAt'> & {
+        createdAt: Timestamp
+        updatedAt: Timestamp
+      }
+      return { id: d.id, ...data }
+    })
 
-  const sharedBoardIds = memberSnaps.docs
-    .map((d) => d.ref.parent.parent?.id)
-    .filter((id): id is string => !!id)
+    boards.sort((a, b) => {
+      const aMs = a.updatedAt?.toMillis?.() ?? 0
+      const bMs = b.updatedAt?.toMillis?.() ?? 0
+      return bMs - aMs
+    })
+    console.log('[board] getBoardsForUser: returning', boards.length, 'boards', boards.map((b) => ({ id: b.id, name: b.name, ownerId: b.ownerId })))
+    return boards
+  } catch (err) {
+    console.error('[board] getBoardsForUser: ERROR', err)
+    throw err
+  }
+}
 
-  const boards: Board[] = []
-  const seen = new Set<string>()
+export type BoardsByCategory = { owned: Board[]; shared: Board[] }
 
-  owned.docs.forEach((d) => {
-    const id = d.id
-    seen.add(id)
-    const data = d.data() as Omit<BoardDoc, 'createdAt' | 'updatedAt'> & {
-      createdAt: Timestamp
-      updatedAt: Timestamp
-    }
-    boards.push({ id, ...data })
-  })
-
-  await Promise.all(
-    sharedBoardIds
-      .filter((id) => !seen.has(id))
-      .map(async (id) => {
-        const b = await getBoard(id)
-        if (b) {
-          boards.push(b)
-          seen.add(id)
-        }
-      })
-  )
-
-  boards.sort((a, b) => {
+function sortBoards(boards: Board[]): Board[] {
+  return [...boards].sort((a, b) => {
     const aMs = a.updatedAt?.toMillis?.() ?? 0
     const bMs = b.updatedAt?.toMillis?.() ?? 0
     return bMs - aMs
   })
-  return boards
+}
+
+export function subscribeToBoardsForUser(callback: (data: BoardsByCategory) => void): Unsubscribe {
+  const user = auth.currentUser
+  if (!user) {
+    callback({ owned: [], shared: [] })
+    return () => {}
+  }
+
+  let ownedBoards: Board[] = []
+  let sharedBoards: Board[] = []
+
+  const emit = () => {
+    const ownedIds = new Set(ownedBoards.map((b) => b.id))
+    const sharedFiltered = sharedBoards.filter((b) => !ownedIds.has(b.id))
+    callback({
+      owned: sortBoards(ownedBoards),
+      shared: sortBoards(sharedFiltered),
+    })
+  }
+
+  const unsubOwned = onSnapshot(
+    query(boardsCol(), where('ownerId', '==', user.uid)),
+    (snap) => {
+      ownedBoards = snap.docs.map((d) => {
+        const data = d.data() as Omit<BoardDoc, 'createdAt' | 'updatedAt'> & {
+          createdAt: Timestamp
+          updatedAt: Timestamp
+        }
+        return { id: d.id, ...data }
+      })
+      emit()
+    },
+    (err) => {
+      console.error('[board] subscribeToBoardsForUser (owned):', err)
+      ownedBoards = []
+      emit()
+    }
+  )
+
+  let unsubMembers: Unsubscribe = () => {}
+  try {
+    unsubMembers = onSnapshot(
+      query(collectionGroup(db, MEMBERS), where('userId', '==', user.uid)),
+      async (snap) => {
+        const boardIds = new Set<string>()
+        snap.docs.forEach((d) => {
+          const segments = d.ref.path.split('/')
+          const idx = segments.indexOf(BOARDS)
+          if (idx >= 0 && segments[idx + 1]) boardIds.add(segments[idx + 1])
+        })
+        const idsToFetch = [...boardIds]
+        const boards: Board[] = []
+        for (const boardId of idsToFetch) {
+          const b = await getBoard(boardId)
+          if (b && b.ownerId !== user.uid) boards.push(b)
+        }
+        sharedBoards = boards
+        emit()
+      },
+      (err) => {
+        console.warn('[board] subscribeToBoardsForUser (shared) failed, showing owned only:', err.message)
+        sharedBoards = []
+        emit()
+      }
+    )
+  } catch (err) {
+    console.warn('[board] subscribeToBoardsForUser (shared) setup failed:', err)
+  }
+
+  return () => {
+    unsubOwned()
+    unsubMembers()
+  }
 }
 
 export async function getBoardMembers(boardId: string): Promise<BoardMember[]> {
@@ -153,7 +234,12 @@ export async function addBoardMember(
   displayName: string | null,
   role: BoardMemberRole
 ): Promise<void> {
-  await updateDoc(boardRef(boardId), { updatedAt: serverTimestamp() })
+  const currentUid = auth.currentUser?.uid
+  // Only owner can update board; invitee adding themselves cannot read/update board yet
+  const isOwnerAddingSomeone = currentUid && userId !== currentUid
+  if (isOwnerAddingSomeone) {
+    await updateDoc(boardRef(boardId), { updatedAt: serverTimestamp() })
+  }
   await setDoc(memberRef(boardId, userId), {
     userId,
     email,

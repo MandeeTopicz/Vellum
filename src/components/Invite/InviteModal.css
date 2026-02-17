@@ -1,7 +1,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10,14 +10,14 @@
 }
 
 .modal {
-  background: var(--card-bg, #1a1a1a);
-  border: 1px solid var(--border, #2a2a2a);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
   max-width: 440px;
   width: 100%;
   max-height: 90vh;
   overflow: auto;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
 }
 
 .modal-header {
@@ -25,12 +25,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border, #2a2a2a);
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 1.15rem;
+  color: #1a1a1a;
 }
 
 .modal-close {
@@ -38,7 +39,7 @@
   height: 32px;
   border: none;
   background: none;
-  color: var(--muted, #888);
+  color: #6b7280;
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
@@ -46,13 +47,79 @@
 }
 
 .modal-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.invite-tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.invite-tab {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.invite-tab:hover {
+  color: #1a1a1a;
+}
+
+.invite-tab.active {
+  color: #4f46e5;
+  font-weight: 500;
+  border-bottom: 2px solid #4f46e5;
+  margin-bottom: -1px;
 }
 
 .invite-form {
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border, #2a2a2a);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.invite-link-section {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.invite-link-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-link-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.invite-copy-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.invite-copy-btn:hover {
+  background: #f3f4f6;
 }
 
 .invite-form-row {
@@ -66,18 +133,23 @@
   min-width: 140px;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid var(--border, #2a2a2a);
-  background: var(--input-bg, #252525);
-  color: inherit;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1a1a1a;
   font-size: 0.95rem;
+}
+
+.invite-form input[type="email"]:focus {
+  outline: none;
+  border-color: #4f46e5;
 }
 
 .invite-form select {
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid var(--border, #2a2a2a);
-  background: var(--input-bg, #252525);
-  color: inherit;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1a1a1a;
   font-size: 0.9rem;
 }
 
@@ -85,7 +157,7 @@
   padding: 0.5rem 1rem;
   border-radius: 8px;
   border: none;
-  background: #646cff;
+  background: #4f46e5;
   color: #fff;
   font-size: 0.9rem;
   cursor: pointer;
@@ -99,13 +171,13 @@
 .invite-error {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
-  color: #f87171;
+  color: #dc2626;
 }
 
 .invite-success {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
-  color: #4ade80;
+  color: #16a34a;
 }
 
 .invite-members {
@@ -116,13 +188,13 @@
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--muted, #888);
+  color: #6b7280;
 }
 
 .invite-muted {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--muted, #888);
+  color: #6b7280;
 }
 
 .members-list {
@@ -137,6 +209,7 @@
   align-items: center;
   padding: 0.4rem 0;
   font-size: 0.9rem;
+  color: #374151;
 }
 
 .member-email {
@@ -148,6 +221,6 @@
 .member-role {
   flex-shrink: 0;
   margin-left: 0.5rem;
-  color: var(--muted, #888);
+  color: #6b7280;
   text-transform: capitalize;
 }

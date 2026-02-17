@@ -1,69 +1,109 @@
-.board-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.board-list-section {
+  margin-top: 0;
+}
+
+.board-list-heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 1rem;
+}
+
+.board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.board-card {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.board-list-empty {
-  padding: 3rem 1rem;
-  text-align: center;
-  color: var(--muted, #888);
-}
-
-.board-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border, #2a2a2a);
-  background: var(--card-bg, #1a1a1a);
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 
-.board-row-main {
+.board-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #d1d5db;
+}
+
+.board-card-main {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 0.85rem 1rem;
+  padding: 1rem;
   border: none;
   background: none;
   color: inherit;
   cursor: pointer;
   text-align: left;
   font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
-.board-row-main:hover {
-  background: rgba(255, 255, 255, 0.04);
+.board-card-main:hover {
+  background: #f9fafb;
 }
 
-.board-name {
+.board-card-name {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 500;
+  color: #1a1a1a;
 }
 
-.board-meta {
+.board-card-meta {
   font-size: 0.8rem;
-  color: var(--muted, #888);
-  margin-top: 0.2rem;
+  color: #6b7280;
 }
 
-.board-row-share {
-  flex-shrink: 0;
-  margin-right: 0.75rem;
+.board-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.board-card-share {
   padding: 0.4rem 0.75rem;
   border-radius: 6px;
-  border: 1px solid var(--border, #2a2a2a);
-  background: transparent;
-  color: inherit;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
   font-size: 0.85rem;
   cursor: pointer;
 }
 
-.board-row-share:hover {
-  border-color: #646cff;
-  color: #646cff;
+.board-card-share:hover {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.board-card-delete {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #dc2626;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.board-card-delete:hover {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.board-list-empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: #6b7280;
+}
+
+.board-list-empty p {
+  margin: 0;
 }

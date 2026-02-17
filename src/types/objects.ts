@@ -36,7 +36,7 @@ export interface BoardObjectBase {
   updatedAt: Timestamp
 }
 
-export type BoardObjectType = 'sticky' | 'rectangle' | 'circle' | 'triangle' | 'line'
+export type BoardObjectType = 'sticky' | 'rectangle' | 'circle' | 'triangle' | 'line' | 'text' | 'emoji'
 
 /** Sticky note: resizable, editable text, fill + text styling */
 export interface StickyObject extends BoardObjectBase {
@@ -64,10 +64,11 @@ export interface CircleObject extends BoardObjectBase {
   fillColor: string
 }
 
-/** Triangle: 3 points in canvas space */
+/** Triangle: position + dimensions (drawn as right triangle) */
 export interface TriangleObject extends BoardObjectBase {
   type: 'triangle'
-  points: [Point, Point, Point]
+  position: Point
+  dimensions: { width: number; height: number }
   fillColor: string
 }
 
@@ -76,8 +77,25 @@ export interface LineObject extends BoardObjectBase {
   type: 'line'
   start: Point
   end: Point
-  strokeColor: string
+  strokeColor?: string
   strokeWidth?: number
+}
+
+/** Text box: editable text */
+export interface TextObject extends BoardObjectBase {
+  type: 'text'
+  position: Point
+  dimensions: { width: number; height: number }
+  content: string
+  textStyle: TextStyle
+}
+
+/** Emoji/sticker placed on canvas */
+export interface EmojiObject extends BoardObjectBase {
+  type: 'emoji'
+  position: Point
+  emoji: string
+  fontSize?: number
 }
 
 export type BoardObject =
@@ -86,6 +104,8 @@ export type BoardObject =
   | CircleObject
   | TriangleObject
   | LineObject
+  | TextObject
+  | EmojiObject
 
 /** Normalized client state: objectId -> object */
 export type ObjectsMap = Record<string, BoardObject>

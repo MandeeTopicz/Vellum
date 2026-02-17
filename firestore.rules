@@ -27,23 +27,48 @@ service cloud.firestore {
       );
     }
     
+    // Collection group rule for invites - required for querying across all boards
+    match /{path=**}/invites/{inviteId} {
+      allow read: if isAuthenticated();
+    }
+
+    // Collection group rule for members - required for "shared boards" query
+    // Query filters by userId so client only receives own memberships
+    match /{path=**}/members/{memberId} {
+      allow read: if isAuthenticated();
+    }
+
     // Boards collection
+    // Use resource.data for query support (get() can fail in query context)
     match /boards/{boardId} {
-      allow read: if isBoardOwner(boardId) || isBoardMember(boardId);
+      allow read: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        exists(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid))
+      );
       allow create: if isAuthenticated();
       allow update, delete: if isBoardOwner(boardId);
       
       // Board members
+      // Allow read if: (a) user is member of this board, or (b) user is reading their own
+      // membership doc (memberId == their uid) - needed for collection group query
+      // Allow create: owner can add anyone; user can add themselves (for invite accept flow)
       match /members/{memberId} {
-        allow read: if isBoardMember(boardId);
-        allow write: if isBoardOwner(boardId);
+        allow read: if isBoardMember(boardId) || (isAuthenticated() && request.auth.uid == memberId);
+        allow create: if isBoardOwner(boardId) || (isAuthenticated() && request.auth.uid == memberId);
+        allow update, delete: if isBoardOwner(boardId);
       }
       
       // Board invites
       match /invites/{inviteId} {
         allow read: if isAuthenticated();
         allow create: if isBoardOwner(boardId);
-        allow update: if isAuthenticated() && resource.data.email == request.auth.token.email;
+        // Invitee can update (accept/reject). Allow when: email matches, or owner, or pending
+        // (pending allows accept - client validates email; token email may differ in case)
+        allow update: if isAuthenticated() && (
+          resource.data.email == request.auth.token.email ||
+          isBoardOwner(boardId) ||
+          resource.data.status == 'pending'
+        );
         allow delete: if isBoardOwner(boardId);
       }
       
@@ -51,6 +76,14 @@ service cloud.firestore {
       match /objects/{objectId} {
         allow read: if isBoardMember(boardId);
         allow write: if canEditBoard(boardId);
+      }
+
+      // Board comments
+      match /comments/{commentId} {
+        allow read: if isBoardMember(boardId);
+        allow create: if canEditBoard(boardId);
+        allow update: if canEditBoard(boardId);
+        allow delete: if canEditBoard(boardId);
       }
     }
   }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { acceptInvite, rejectInvite } from '../../services/invites'
 import type { BoardInvite } from '../../types'
@@ -6,8 +7,9 @@ import './PendingInvites.css'
 interface PendingInvitesProps {
   invites: BoardInvite[]
   onClose: () => void
-  onAccept: () => void
+  onAccept: (boardId?: string) => void
   onReject: () => void
+  onOpen?: () => void
 }
 
 export default function PendingInvites({
@@ -15,31 +17,51 @@ export default function PendingInvites({
   onClose,
   onAccept,
   onReject,
+  onOpen,
 }: PendingInvitesProps) {
+  const [error, setError] = useState<string | null>(null)
+  const [acceptingId, setAcceptingId] = useState<string | null>(null)
+  useEffect(() => {
+    onOpen?.()
+  }, [onOpen])
   const navigate = useNavigate()
 
   async function handleAccept(inv: BoardInvite) {
+    setError(null)
+    setAcceptingId(inv.id)
     try {
       await acceptInvite(inv.boardId, inv.id)
-      onAccept()
+      onAccept(inv.boardId)
       onClose()
-      navigate(`/board/${inv.boardId}`, { replace: true })
-    } catch {
+      navigate(`/board/${inv.boardId}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to accept invite'
+      console.error('[PendingInvites] accept failed:', err)
+      setError(msg)
       onAccept()
+    } finally {
+      setAcceptingId(null)
     }
   }
 
   async function handleReject(inv: BoardInvite) {
+    setError(null)
     try {
       await rejectInvite(inv.boardId, inv.id)
       onReject()
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to decline invite')
       onReject()
     }
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div
         className="modal pending-invites-modal"
         onClick={(e) => e.stopPropagation()}
@@ -51,6 +73,11 @@ export default function PendingInvites({
           </button>
         </div>
         <div className="pending-invites-content">
+          {error && (
+            <p className="invite-error" role="alert">
+              {error}
+            </p>
+          )}
           {invites.length === 0 ? (
             <p className="invite-muted">No pending invites.</p>
           ) : (
@@ -67,14 +94,21 @@ export default function PendingInvites({
                     <button
                       type="button"
                       className="btn-accept"
-                      onClick={() => handleAccept(inv)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleAccept(inv)
+                      }}
+                      disabled={acceptingId === inv.id}
                     >
-                      Accept
+                      {acceptingId === inv.id ? 'Accepting…' : 'Accept'}
                     </button>
                     <button
                       type="button"
                       className="btn-reject"
-                      onClick={() => handleReject(inv)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleReject(inv)
+                      }}
                     >
                       Decline
                     </button>
