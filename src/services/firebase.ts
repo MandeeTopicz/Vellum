@@ -6,6 +6,7 @@ import {
   type User,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updateProfile,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   type UserCredential,
@@ -68,8 +69,16 @@ export async function signIn(email: string, password: string): Promise<UserCrede
   return signInWithEmailAndPassword(authInstance, email, password)
 }
 
-export async function signUp(email: string, password: string): Promise<UserCredential> {
-  return createUserWithEmailAndPassword(authInstance, email, password)
+export async function signUp(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<UserCredential> {
+  const cred = await createUserWithEmailAndPassword(authInstance, email, password)
+  if (displayName?.trim()) {
+    await updateProfile(cred.user, { displayName: displayName.trim() })
+  }
+  return cred
 }
 
 export async function signOut(): Promise<void> {

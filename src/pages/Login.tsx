@@ -5,6 +5,7 @@ import './Login.css'
 
 export default function Login() {
   const navigate = useNavigate()
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignUp, setIsSignUp] = useState(false)
@@ -17,7 +18,7 @@ export default function Login() {
     setLoading(true)
     try {
       if (isSignUp) {
-        await signUp(email, password)
+        await signUp(email, password, username)
       } else {
         await signIn(email, password)
       }
@@ -39,9 +40,18 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>CollabBoard</h1>
+        <h1>Vellum</h1>
         <p className="login-subtitle">Real-time collaborative whiteboard</p>
         <form onSubmit={handleSubmit} className="login-form">
+          {isSignUp && (
+            <input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+            />
+          )}
           <input
             type="email"
             placeholder="Email"
@@ -69,6 +79,7 @@ export default function Login() {
           onClick={() => {
             setIsSignUp((v) => !v)
             setError(null)
+            setUsername('')
           }}
         >
           {isSignUp ? 'Already have an account? Sign in' : 'Need an account? Sign up'}

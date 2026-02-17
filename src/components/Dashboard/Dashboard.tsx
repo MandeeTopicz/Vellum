@@ -114,7 +114,7 @@ export default function Dashboard() {
 
       <main
         className="dashboard-main"
-        style={{ marginLeft: sidebarExpanded ? 200 : 48 }}
+        style={{ left: sidebarExpanded ? 300 : 72 }}
       >
         <section className="dashboard-ai-placeholder">
           <h2 className="dashboard-ai-title">Need help drafting a template?</h2>
@@ -135,6 +135,11 @@ export default function Dashboard() {
             </button>
             <div className="dashboard-template-recent">
               <h3 className="dashboard-template-recent-title">Recently Used Templates</h3>
+              <div className="dashboard-template-tiles">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="dashboard-template-tile-slot" aria-hidden />
+                ))}
+              </div>
               <p className="dashboard-template-recent-message">
                 {!loading && (boardsData.owned.length > 0 || boardsData.shared.length > 0)
                   ? "Templates coming soon – we're building AI-powered templates for you"
@@ -155,6 +160,7 @@ export default function Dashboard() {
               onOpen={handleOpenBoard}
               onShare={setShareBoardId}
               onDelete={handleDeleteBoard}
+              onCreateBoard={() => setCreateBoardOpen(true)}
             />
           )}
         </section>
