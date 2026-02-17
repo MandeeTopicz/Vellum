@@ -78,12 +78,12 @@ service cloud.firestore {
         allow write: if canEditBoard(boardId);
       }
 
-      // Board comments
+      // Board comments - owner or edit members can read/write
+      // Creator can delete their own comment
       match /comments/{commentId} {
-        allow read: if isBoardMember(boardId);
-        allow create: if canEditBoard(boardId);
-        allow update: if canEditBoard(boardId);
-        allow delete: if canEditBoard(boardId);
+        allow read: if isAuthenticated() && (isBoardOwner(boardId) || isBoardMember(boardId));
+        allow create, update: if canEditBoard(boardId);
+        allow delete: if canEditBoard(boardId) && resource.data.authorId == request.auth.uid;
       }
     }
   }

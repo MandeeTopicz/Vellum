@@ -54,6 +54,9 @@
   border-radius: 6px;
   background: transparent;
   color: #374151;
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   transition: background 0.2s;
 }

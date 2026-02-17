@@ -54,6 +54,14 @@ export default function WhiteboardToolbar({
   const penRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
 
+  const closeAllDropdowns = () => {
+    setFormatsOpen(false)
+    setTemplatesOpen(false)
+    setShapesOpen(false)
+    setPenOpen(false)
+    setEmojiOpen(false)
+  }
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -64,11 +72,7 @@ export default function WhiteboardToolbar({
         emojiRef.current?.contains(e.target as Node)
       )
         return
-      setFormatsOpen(false)
-      setTemplatesOpen(false)
-      setShapesOpen(false)
-      setPenOpen(false)
-      setEmojiOpen(false)
+      closeAllDropdowns()
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -91,7 +95,10 @@ export default function WhiteboardToolbar({
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'pointer' ? 'active' : ''}`}
-        onClick={() => onToolSelect('pointer')}
+        onClick={() => {
+          closeAllDropdowns()
+          onToolSelect('pointer')
+        }}
         title="Select"
       >
         <img src={pointerIcon} alt="Select" width={20} height={20} />
@@ -101,7 +108,10 @@ export default function WhiteboardToolbar({
         <button
           type="button"
           className="toolbar-icon-btn"
-          onClick={() => setFormatsOpen((v) => !v)}
+          onClick={() => {
+            closeAllDropdowns()
+            setFormatsOpen((v) => !v)
+          }}
           title="Formats & Flows"
         >
           <img src={formatsIcon} alt="Formats & Flows" width={20} height={20} />
@@ -118,7 +128,10 @@ export default function WhiteboardToolbar({
         <button
           type="button"
           className="toolbar-icon-btn"
-          onClick={() => setTemplatesOpen((v) => !v)}
+          onClick={() => {
+            closeAllDropdowns()
+            setTemplatesOpen((v) => !v)
+          }}
           title="Templates"
         >
           <img src={templatesIcon} alt="Templates" width={20} height={20} />
@@ -133,7 +146,10 @@ export default function WhiteboardToolbar({
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'sticky' ? 'active' : ''}`}
-        onClick={() => onToolSelect('sticky')}
+        onClick={() => {
+          closeAllDropdowns()
+          onToolSelect('sticky')
+        }}
         disabled={!canEdit}
         title="Sticky Note"
       >
@@ -143,7 +159,10 @@ export default function WhiteboardToolbar({
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'text' ? 'active' : ''}`}
-        onClick={() => onToolSelect('text')}
+        onClick={() => {
+          closeAllDropdowns()
+          onToolSelect('text')
+        }}
         disabled={!canEdit}
         title="Text Box"
       >
@@ -154,7 +173,10 @@ export default function WhiteboardToolbar({
         <button
           type="button"
           className={`toolbar-icon-btn ${shapeTypes.includes(activeTool as typeof shapeTypes[number]) ? 'active' : ''}`}
-          onClick={() => setShapesOpen((v) => !v)}
+          onClick={() => {
+            closeAllDropdowns()
+            setShapesOpen((v) => !v)
+          }}
           disabled={!canEdit}
           title="Shapes"
         >
@@ -184,6 +206,7 @@ export default function WhiteboardToolbar({
           type="button"
           className={`toolbar-icon-btn ${activeTool === 'pen' ? 'active' : ''}`}
           onClick={() => {
+            closeAllDropdowns()
             setPenOpen((v) => !v)
             if (!penOpen) onToolSelect('pen')
           }}
@@ -214,7 +237,10 @@ export default function WhiteboardToolbar({
         <button
           type="button"
           className={`toolbar-icon-btn ${activeTool === 'emoji' ? 'active' : ''}`}
-          onClick={() => setEmojiOpen((v) => !v)}
+          onClick={() => {
+            closeAllDropdowns()
+            setEmojiOpen((v) => !v)
+          }}
           disabled={!canEdit}
           title="Stickers / Emojis"
         >
@@ -247,21 +273,25 @@ export default function WhiteboardToolbar({
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'comment' ? 'active' : ''}`}
-        onClick={() => onToolSelect('comment')}
+        onClick={() => {
+          closeAllDropdowns()
+          onToolSelect('comment')
+        }}
         disabled={!canEdit}
         title="Comment"
       >
         <img src={commentIcon} alt="Comment" width={20} height={20} />
       </button>
 
-      <button
-        type="button"
-        className="toolbar-icon-btn disabled"
-        title="Link - Coming Soon"
-        disabled
-      >
-        <img src={linkIcon} alt="Link" width={20} height={20} />
-      </button>
+      <span className="toolbar-icon-wrap" title="Upload - Coming Soon">
+        <button
+          type="button"
+          className="toolbar-icon-btn disabled"
+          disabled
+        >
+          <img src={linkIcon} alt="Upload" width={20} height={20} />
+        </button>
+      </span>
 
       <div className="toolbar-divider" />
 

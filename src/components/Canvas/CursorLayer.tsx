@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { memo } from 'react'
 import { Layer, Group, Circle, Text } from 'react-konva'
 import type { CursorPosition } from '../../services/presence'
 import type { Viewport } from './InfiniteCanvas'
@@ -9,20 +9,18 @@ interface CursorLayerProps {
   currentUserId: string
 }
 
-export default function CursorLayer({
+function getDisplayName(displayName: string | null, userId: string): string {
+  if (!displayName) return userId.slice(0, 8)
+  if (displayName.includes('@')) return displayName.split('@')[0]
+  return displayName
+}
+
+function CursorLayer({
   cursors,
   viewport,
   currentUserId,
 }: CursorLayerProps) {
   const otherCursors = cursors.filter((c) => c.userId !== currentUserId)
-  const lastLogRef = useRef(0)
-  useEffect(() => {
-    const now = Date.now()
-    if (now - lastLogRef.current > 1000) {
-      lastLogRef.current = now
-      console.log('[CursorLayer] total cursors:', cursors.length, 'remote (excluding self):', otherCursors.length, 'currentUserId:', currentUserId, 'remote positions:', otherCursors.map((c) => ({ id: c.userId.slice(0, 8), x: c.x.toFixed(0), y: c.y.toFixed(0) })))
-    }
-  }, [cursors, otherCursors.length, currentUserId])
 
   return (
     <Layer listening={false}>
@@ -35,14 +33,12 @@ export default function CursorLayer({
             <Circle
               radius={6}
               fill={cursor.color}
-              stroke="#1a1a1a"
-              strokeWidth={2}
               listening={false}
             />
             <Text
               x={10}
               y={-6}
-              text={cursor.displayName || cursor.userId.slice(0, 8)}
+              text={getDisplayName(cursor.displayName, cursor.userId)}
               fontSize={12}
               fontFamily="Inter, system-ui, sans-serif"
               fill="#1a1a1a"
@@ -54,3 +50,5 @@ export default function CursorLayer({
     </Layer>
   )
 }
+
+export default memo(CursorLayer)

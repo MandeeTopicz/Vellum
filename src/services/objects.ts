@@ -7,6 +7,7 @@ import {
   deleteDoc,
   onSnapshot,
   serverTimestamp,
+  Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { db, auth } from './firebase'
@@ -262,6 +263,7 @@ export async function createObject(
 
 export type ObjectUpdates =
   | { position: Point }
+  | { position: Point; dimensions: { width: number; height: number } }
   | { content: string }
   | { content: string; textStyle?: Partial<StickyObject['textStyle']> }
   | { dimensions: { width: number; height: number } }
@@ -289,6 +291,15 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
   return rest
 }
 
+/** Revive serialized Firestore Timestamp (from JSON/IndexedDB) to Timestamp instance. */
+function reviveTimestamp(val: unknown): Timestamp | ReturnType<typeof serverTimestamp> {
+  if (val && typeof val === 'object' && 'seconds' in val && typeof (val as { seconds: unknown }).seconds === 'number') {
+    const v = val as { seconds: number; nanoseconds?: number }
+    return Timestamp.fromMillis(v.seconds * 1000 + ((v.nanoseconds ?? 0) / 1e6))
+  }
+  return serverTimestamp()
+}
+
 /** Restore a deleted object (for undo). Uses setDoc to recreate with same ID. */
 export async function restoreObject(
   boardId: string,
@@ -300,7 +311,7 @@ export async function restoreObject(
   const docData = {
     ...data,
     createdBy: data.createdBy ?? user.uid,
-    createdAt: data.createdAt ?? serverTimestamp(),
+    createdAt: reviveTimestamp(data.createdAt),
     updatedAt: serverTimestamp(),
   }
   await setDoc(objectRef(boardId, objectId), docData)

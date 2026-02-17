@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { getBoard, getCurrentUserRole, canCurrentUserEdit, updateBoard } from '../services/board'
 import {
   subscribeToObjects,
@@ -10,7 +10,14 @@ import {
   objectToFirestoreDoc,
   type ObjectUpdates,
 } from '../services/objects'
-import { createComment, addCommentReply, subscribeToComments } from '../services/comments'
+import {
+  createComment,
+  addCommentReply,
+  deleteComment,
+  restoreComment,
+  subscribeToComments,
+} from '../services/comments'
+import { loadUndoStacks, saveUndoStacks, MAX_STACK_SIZE } from '../services/undoHistory'
 import {
   setUserPresence,
   subscribeToPresence,
@@ -24,7 +31,7 @@ import type { BoardComment } from '../services/comments'
 import type { PresenceUser } from '../services/presence'
 import type { CursorPosition } from '../services/presence'
 import InfiniteCanvas, { type Viewport } from '../components/Canvas/InfiniteCanvas'
-import ObjectLayer from '../components/Canvas/ObjectLayer'
+import ObjectLayer, { type ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
 import CursorLayer from '../components/Canvas/CursorLayer'
 import CommentLayer from '../components/Canvas/CommentLayer'
 import WhiteboardToolbar from '../components/Canvas/WhiteboardToolbar'
@@ -76,10 +83,27 @@ export default function BoardPage() {
     | { type: 'create'; objectId: string; createInput: Parameters<typeof createObject>[1] }
     | { type: 'update'; objectId: string; from: Record<string, unknown>; to: Record<string, unknown> }
     | { type: 'delete'; objectId: string; deleted: BoardObject }
+    | { type: 'deleteComment'; commentId: string; deleted: BoardComment }
   const undoStackRef = useRef<UndoAction[]>([])
   const redoStackRef = useRef<UndoAction[]>([])
+  const justClosedTextEditorRef = useRef(false)
+  const viewportRef = useRef(viewport)
+  viewportRef.current = viewport
 
   const id = boardId ?? ''
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    loadUndoStacks(id).then((stacks) => {
+      if (cancelled || !stacks) return
+      undoStackRef.current = stacks.undoStack as UndoAction[]
+      redoStackRef.current = stacks.redoStack as UndoAction[]
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   useEffect(() => {
     if (!id || !user) return
@@ -173,31 +197,43 @@ export default function BoardPage() {
     }
   }, [])
 
-  const pushUndo = useCallback((action: UndoAction) => {
-    undoStackRef.current = undoStackRef.current.slice(-49).concat(action)
-    redoStackRef.current = []
-  }, [])
+  const pushUndo = useCallback(
+    (action: UndoAction) => {
+      undoStackRef.current = undoStackRef.current.slice(-(MAX_STACK_SIZE - 1)).concat(action)
+      redoStackRef.current = []
+      if (id) saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
+    },
+    [id]
+  )
 
-  const handleUndo = useCallback(async () => {
-    const action = undoStackRef.current.pop()
-    if (!action || !id || !canEdit) return
-    try {
-      if (action.type === 'create') {
-        await deleteObject(id, action.objectId)
-        redoStackRef.current.push(action)
-      } else if (action.type === 'update') {
-        await updateObject(id, action.objectId, action.from as ObjectUpdates)
-        redoStackRef.current.push({ ...action, from: action.to, to: action.from })
-      } else if (action.type === 'delete') {
-        const docData = objectToFirestoreDoc(action.deleted)
-        await restoreObject(id, action.objectId, docData)
-        redoStackRef.current.push(action)
+  const handleUndo = useCallback(
+    async () => {
+      const action = undoStackRef.current.pop()
+      if (!action || !id || !canEdit) return
+      try {
+        if (action.type === 'create') {
+          await deleteObject(id, action.objectId)
+          redoStackRef.current.push(action)
+        } else if (action.type === 'update') {
+          await updateObject(id, action.objectId, action.from as ObjectUpdates)
+          redoStackRef.current.push({ ...action, from: action.to, to: action.from })
+        } else if (action.type === 'delete') {
+          const docData = objectToFirestoreDoc(action.deleted)
+          await restoreObject(id, action.objectId, docData)
+          redoStackRef.current.push(action)
+        } else if (action.type === 'deleteComment') {
+          const { id: _id, boardId: _boardId, ...docData } = action.deleted
+          await restoreComment(id, action.commentId, docData)
+          redoStackRef.current.push(action)
+        }
+        saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
+      } catch (err) {
+        console.error('[undo]', err)
+        undoStackRef.current.push(action)
       }
-    } catch (err) {
-      console.error('[undo]', err)
-      undoStackRef.current.push(action)
-    }
-  }, [id, canEdit])
+    },
+    [id, canEdit]
+  )
 
   const handleRedo = useCallback(async () => {
     const action = redoStackRef.current.pop()
@@ -212,12 +248,16 @@ export default function BoardPage() {
       } else if (action.type === 'delete') {
         await deleteObject(id, action.objectId)
         undoStackRef.current.push(action)
+      } else if (action.type === 'deleteComment') {
+        await deleteComment(id, action.commentId)
+        undoStackRef.current.push(action)
       }
+      saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
     } catch (err) {
       console.error('[redo]', err)
       redoStackRef.current.push(action)
     }
-  }, [id, canEdit, objects])
+  }, [id, canEdit])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -229,6 +269,7 @@ export default function BoardPage() {
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedIds.size > 0 && canEdit) {
+          e.preventDefault()
           selectedIds.forEach((oid) => {
             const obj = objects[oid]
             if (obj) pushUndo({ type: 'delete', objectId: oid, deleted: obj })
@@ -247,6 +288,11 @@ export default function BoardPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo])
 
+  const cursorLayerEl = useMemo(
+    () => <CursorLayer cursors={cursors} viewport={viewport} currentUserId={user.uid} />,
+    [cursors, viewport, user.uid]
+  )
+
   const handleStageMouseMove = useCallback(
     (e: { target: { getStage: () => unknown } }) => {
       if (!id) return
@@ -254,11 +300,12 @@ export default function BoardPage() {
       if (!stage?.getPointerPosition) return
       const pos = stage.getPointerPosition()
       if (!pos) return
-      const worldX = (pos.x - viewport.x) / viewport.scale
-      const worldY = (pos.y - viewport.y) / viewport.scale
+      const v = viewportRef.current
+      const worldX = (pos.x - v.x) / v.scale
+      const worldY = (pos.y - v.y) / v.scale
       updateCursor(id, worldX, worldY)
     },
-    [id, viewport]
+    [id]
   )
 
   const getViewportCenter = useCallback(() => {
@@ -318,6 +365,35 @@ export default function BoardPage() {
     []
   )
 
+  const handleObjectResizeEnd = useCallback(
+    async (objectId: string, updates: ObjectResizeUpdates) => {
+      if (!id || !canEdit) return
+      const obj = objects[objectId]
+      if (!obj) return
+      const from =
+        'start' in updates
+          ? { start: (obj as LineObject).start, end: (obj as LineObject).end }
+          : {
+              position: (obj as { position: { x: number; y: number } }).position,
+              dimensions: (obj as { dimensions: { width: number; height: number } }).dimensions,
+            }
+      pushUndo({ type: 'update', objectId, from, to: updates })
+      setObjects((prev) => {
+        const o = prev[objectId]
+        if (!o) return prev
+        if ('start' in updates) {
+          return { ...prev, [objectId]: { ...o, start: updates.start, end: updates.end } }
+        }
+        return {
+          ...prev,
+          [objectId]: { ...o, position: updates.position, dimensions: updates.dimensions },
+        }
+      })
+      await updateObject(id, objectId, updates as ObjectUpdates)
+    },
+    [id, canEdit, objects, pushUndo]
+  )
+
   const handleBackgroundClick = useCallback(
     async (worldPos: { x: number; y: number }) => {
       setSelectedIds(new Set())
@@ -363,16 +439,23 @@ export default function BoardPage() {
             end: { x: center.x + 50, y: center.y },
           }
         } else if (activeTool === 'text') {
+          if (justClosedTextEditorRef.current) {
+            justClosedTextEditorRef.current = false
+            return
+          }
           input = {
             type: 'text',
             position: { x: center.x - 100, y: center.y - 20 },
             dimensions: { width: 200, height: 40 },
-            content: 'Text',
+            content: '',
           }
         }
         if (input) {
           const objectId = await createObject(id, input)
           pushUndo({ type: 'create', objectId, createInput: input })
+          if (activeTool === 'text') {
+            setEditingTextId(objectId)
+          }
         }
       }
       if (activeTool === 'emoji' && canEdit) {
@@ -384,7 +467,6 @@ export default function BoardPage() {
         }
         const objectId = await createObject(id, input)
         pushUndo({ type: 'create', objectId, createInput: input })
-        setPendingEmoji(null)
       }
     },
     [id, activeTool, canEdit, pendingEmoji, pushUndo]
@@ -419,6 +501,7 @@ export default function BoardPage() {
       const oldContent = obj && obj.type === 'text' ? obj.content : ''
       pushUndo({ type: 'update', objectId, from: { content: oldContent }, to: { content } })
       await updateObject(id, objectId, { content })
+      justClosedTextEditorRef.current = true
       setEditingTextId(null)
     },
     [id, canEdit, objects, pushUndo]
@@ -437,9 +520,18 @@ export default function BoardPage() {
     async (text: string) => {
       if (!id || !commentThread) return
       await addCommentReply(id, commentThread.id, text)
-      setCommentThread(null)
     },
     [id, commentThread]
+  )
+
+  const handleCommentDelete = useCallback(
+    async () => {
+      if (!id || !commentThread) return
+      pushUndo({ type: 'deleteComment', commentId: commentThread.id, deleted: commentThread })
+      await deleteComment(id, commentThread.id)
+      setCommentThread(null)
+    },
+    [id, commentThread, pushUndo]
   )
 
   const handleZoomIn = useCallback(() => {
@@ -527,13 +619,7 @@ export default function BoardPage() {
           onMouseMove={handleStageMouseMove}
           onBackgroundClick={handleBackgroundClick}
           showGrid={showGrid}
-          cursorLayer={
-            <CursorLayer
-              cursors={cursors}
-              viewport={viewport}
-              currentUserId={user.uid}
-            />
-          }
+          cursorLayer={cursorLayerEl}
         >
           <ObjectLayer
             objects={objects}
@@ -542,11 +628,18 @@ export default function BoardPage() {
             isPointerTool={activeTool === 'pointer'}
             onObjectDragEnd={handleObjectDragEnd}
             onObjectClick={handleObjectClick}
+            onObjectResizeEnd={handleObjectResizeEnd}
             onStickyDoubleClick={handleStickyDoubleClick}
             onTextDoubleClick={handleTextDoubleClick}
             canEdit={canEdit}
           />
-          <CommentLayer comments={comments} onCommentClick={setCommentThread} />
+          <CommentLayer
+            comments={comments}
+            onCommentClick={(comment) => {
+              setCommentModalPos(null)
+              setCommentThread(comment)
+            }}
+          />
         </InfiniteCanvas>
 
         <WhiteboardToolbar
@@ -596,13 +689,18 @@ export default function BoardPage() {
 
         <CommentModal
           position={commentModalPos}
+          viewport={viewport}
+          canvasWidth={dimensions.width}
+          canvasHeight={dimensions.height}
           onSave={handleCommentSave}
           onCancel={() => setCommentModalPos(null)}
         />
 
         <CommentThreadModal
-          comment={commentThread}
+          comment={comments.find((c) => c.id === commentThread?.id) ?? commentThread}
+          currentUserId={user.uid}
           onReply={handleCommentReply}
+          onDelete={handleCommentDelete}
           onClose={() => setCommentThread(null)}
         />
 

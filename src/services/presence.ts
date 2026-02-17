@@ -7,7 +7,7 @@ import {
 } from 'firebase/database'
 import { rtdb, auth } from './firebase'
 
-const CURSOR_THROTTLE_MS = 33 // ~30fps
+const CURSOR_THROTTLE_MS = 50 // ~20fps - smooth enough for cursor, reduces re-renders
 
 export interface PresenceUser {
   userId: string
@@ -69,10 +69,7 @@ let cursorFlushTimer: ReturnType<typeof setTimeout> | null = null
 
 export function updateCursor(boardId: string, x: number, y: number): void {
   const user = auth.currentUser
-  if (!user) {
-    console.log('[presence] updateCursor skipped: no user')
-    return
-  }
+  if (!user) return
 
   const now = Date.now()
   if (now - lastCursorUpdate < CURSOR_THROTTLE_MS) {
@@ -85,10 +82,9 @@ export function updateCursor(boardId: string, x: number, y: number): void {
           const payload = {
             x: pendingCursor.x,
             y: pendingCursor.y,
-            displayName: user.displayName ?? user.email ?? null,
+            displayName: user.displayName ?? (user.email ? user.email.split('@')[0] : null),
             color: hashToColor(user.uid),
           }
-          console.log('[presence] Sending cursor update (throttled flush)', boardId, user.uid, payload)
           set(cursorRef, payload)
           pendingCursor = null
         }
@@ -104,10 +100,9 @@ export function updateCursor(boardId: string, x: number, y: number): void {
   const payload = {
     x,
     y,
-    displayName: user.displayName ?? user.email ?? null,
+    displayName: user.displayName ?? (user.email ? user.email.split('@')[0] : null),
     color: hashToColor(user.uid),
   }
-  console.log('[presence] Sending cursor update', boardId, user.uid, payload)
   set(cursorRef, payload)
 }
 
@@ -142,10 +137,8 @@ export function subscribeToCursors(
   callback: (cursors: CursorPosition[]) => void
 ): Unsubscribe {
   const cursorsRef = ref(rtdb, `cursors/${boardId}`)
-  console.log('[presence] subscribeToCursors: listening to path', `cursors/${boardId}`)
   return onValue(cursorsRef, (snapshot) => {
     const data = snapshot.val()
-    console.log('[presence] Received cursor data', boardId, 'raw:', data)
     const cursors: CursorPosition[] = []
     if (data && typeof data === 'object') {
       for (const [userId, val] of Object.entries(data)) {
@@ -158,12 +151,9 @@ export function subscribeToCursors(
             displayName: (v.displayName as string | null) ?? null,
             color: (v.color as string) ?? '#888',
           })
-        } else {
-          console.log('[presence] Skipped cursor entry (invalid)', userId, val)
         }
       }
     }
-    console.log('[presence] Parsed cursors:', cursors.length, cursors)
     callback(cursors)
   })
 }

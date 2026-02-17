@@ -1,4 +1,3 @@
-import { Minus, Plus } from 'lucide-react'
 import gridIcon from '../../assets/grid-icon.png'
 import './WhiteboardControls.css'
 
@@ -36,8 +35,9 @@ export default function WhiteboardControls({
           onClick={onZoomOut}
           title="Zoom out"
           disabled={zoomPercent <= 10}
+          aria-label="Zoom out"
         >
-          <Minus size={18} />
+          −
         </button>
         <span className="whiteboard-zoom-value">{zoomPercent}%</span>
         <button
@@ -46,8 +46,9 @@ export default function WhiteboardControls({
           onClick={onZoomIn}
           title="Zoom in"
           disabled={zoomPercent >= 400}
+          aria-label="Zoom in"
         >
-          <Plus size={18} />
+          +
         </button>
       </div>
     </div>

@@ -24,7 +24,6 @@ export default function TextBoxEditor({
 
   useEffect(() => {
     textareaRef.current?.focus()
-    textareaRef.current?.select()
   }, [])
 
   return (

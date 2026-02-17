@@ -16,6 +16,15 @@
 
 .toolbar-icon-wrap {
   display: flex;
+  min-width: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.toolbar-icon-wrap .toolbar-icon-btn:disabled {
+  cursor: pointer;
 }
 
 .toolbar-icon-btn {

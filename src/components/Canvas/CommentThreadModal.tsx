@@ -1,17 +1,28 @@
 import { useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { BoardComment } from '../../services/comments'
 import './CommentThreadModal.css'
 
 interface CommentThreadModalProps {
   comment: BoardComment | null
+  currentUserId: string | null
   onReply: (text: string) => void
+  onDelete?: () => void
   onClose: () => void
 }
 
-export default function CommentThreadModal({ comment, onReply, onClose }: CommentThreadModalProps) {
+export default function CommentThreadModal({
+  comment,
+  currentUserId,
+  onReply,
+  onDelete,
+  onClose,
+}: CommentThreadModalProps) {
   const [replyText, setReplyText] = useState('')
 
   if (!comment) return null
+
+  const isCreator = currentUserId != null && comment.authorId === currentUserId
 
   const handleReply = () => {
     const trimmed = replyText.trim()
@@ -26,9 +37,22 @@ export default function CommentThreadModal({ comment, onReply, onClose }: Commen
       <div className="comment-thread-modal">
         <div className="comment-thread-header">
           <h3>Comment</h3>
-          <button type="button" className="comment-thread-close" onClick={onClose}>
-            ×
-          </button>
+          <div className="comment-thread-header-actions">
+            {isCreator && onDelete && (
+              <button
+                type="button"
+                className="comment-btn-delete"
+                onClick={onDelete}
+                title="Delete comment"
+                aria-label="Delete comment"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+            <button type="button" className="comment-btn-done" onClick={onClose}>
+              Done
+            </button>
+          </div>
         </div>
         <div className="comment-thread-main">
           <div className="comment-thread-author">{comment.authorName || 'Anonymous'}</div>
@@ -53,7 +77,7 @@ export default function CommentThreadModal({ comment, onReply, onClose }: Commen
           />
           <button
             type="button"
-            className="comment-btn-save"
+            className="comment-btn-reply"
             onClick={handleReply}
             disabled={!replyText.trim()}
           >

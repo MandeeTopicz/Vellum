@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useMemo } from 'react'
+import { memo, useRef, useCallback, useState, useMemo } from 'react'
 import { Stage, Layer, Group, Rect, Circle } from 'react-konva'
 import type Konva from 'konva'
 
@@ -66,7 +66,7 @@ interface InfiniteCanvasProps {
   cursorLayer: React.ReactNode
 }
 
-export default function InfiniteCanvas({
+function InfiniteCanvas({
   width,
   height,
   viewport,
@@ -79,8 +79,10 @@ export default function InfiniteCanvas({
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const [isPanning, setIsPanning] = useState(false)
-  const panStartRef = useRef({ x: 0, y: 0, vx: 0, vy: 0 })
+  const panStartRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, scale: 1 })
   const didPanRef = useRef(false)
+  const rafIdRef = useRef<number | null>(null)
+  const pendingPanRef = useRef<{ dx: number; dy: number } | null>(null)
 
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -123,7 +125,7 @@ export default function InfiniteCanvas({
           if (pos) {
             setIsPanning(true)
             didPanRef.current = false
-            panStartRef.current = { x: pos.x, y: pos.y, vx: viewport.x, vy: viewport.y }
+            panStartRef.current = { x: pos.x, y: pos.y, vx: viewport.x, vy: viewport.y, scale: viewport.scale }
           }
         }
       }
@@ -142,28 +144,45 @@ export default function InfiniteCanvas({
       const { x: startX, y: startY, vx, vy } = panStartRef.current
       const dx = pos.x - startX
       const dy = pos.y - startY
-      onViewportChange({
-        ...viewport,
-        x: vx + dx,
-        y: vy + dy,
-      })
+      pendingPanRef.current = { dx, dy }
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null
+          const pending = pendingPanRef.current
+          if (!pending) return
+          const { vx, vy, scale } = panStartRef.current
+          onViewportChange({
+            x: vx + pending.dx,
+            y: vy + pending.dy,
+            scale,
+          })
+        })
+      }
     },
-    [isPanning, viewport, onViewportChange]
+    [isPanning, onViewportChange]
   )
 
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
-      console.log('[canvas] pan end')
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      const pending = pendingPanRef.current
+      if (pending) {
+        const { vx, vy, scale } = panStartRef.current
+        onViewportChange({ x: vx + pending.dx, y: vy + pending.dy, scale })
+      }
       setIsPanning(false)
     }
-  }, [isPanning])
+  }, [isPanning, onViewportChange])
 
   const combinedMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       handleMouseMovePan(e)
-      onMouseMove?.(e)
+      if (!isPanning) onMouseMove?.(e)
     },
-    [handleMouseMovePan, onMouseMove]
+    [handleMouseMovePan, onMouseMove, isPanning]
   )
 
   const handleClick = useCallback(
@@ -234,3 +253,5 @@ export default function InfiniteCanvas({
     </Stage>
   )
 }
+
+export default memo(InfiniteCanvas)

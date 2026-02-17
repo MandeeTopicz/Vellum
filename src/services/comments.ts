@@ -2,9 +2,12 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   serverTimestamp,
+  Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore'
 import { db, auth } from './firebase'
@@ -13,7 +16,7 @@ export interface CommentReply {
   authorId: string
   authorName: string | null
   text: string
-  timestamp: ReturnType<typeof serverTimestamp>
+  timestamp: Timestamp
 }
 
 export interface BoardComment {
@@ -40,10 +43,11 @@ export async function createComment(
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')
 
+  const authorName = user.displayName ?? (user.email ? user.email.split('@')[0] : null)
   const docData = {
     position,
     authorId: user.uid,
-    authorName: user.displayName ?? null,
+    authorName,
     text,
     replies: [],
     createdAt: serverTimestamp(),
@@ -62,11 +66,12 @@ export async function addCommentReply(
   if (!user) throw new Error('Not authenticated')
 
   const commentRef = doc(db, 'boards', boardId, 'comments', commentId)
+  const authorName = user.displayName ?? (user.email ? user.email.split('@')[0] : null)
   const reply: CommentReply = {
     authorId: user.uid,
-    authorName: user.displayName ?? null,
+    authorName,
     text,
-    timestamp: serverTimestamp(),
+    timestamp: Timestamp.now(),
   }
 
   const snap = await import('firebase/firestore').then(({ getDoc }) => getDoc(commentRef))
@@ -74,6 +79,50 @@ export async function addCommentReply(
   const replies = (data?.replies ?? []) as CommentReply[]
   await updateDoc(commentRef, {
     replies: [...replies, reply],
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteComment(boardId: string, commentId: string): Promise<void> {
+  const commentRef = doc(db, 'boards', boardId, 'comments', commentId)
+  await deleteDoc(commentRef)
+}
+
+/** Revive serialized Firestore Timestamp (from JSON/IndexedDB). */
+function reviveTimestamp(val: unknown): Timestamp {
+  if (val && typeof val === 'object' && 'seconds' in val && typeof (val as { seconds: unknown }).seconds === 'number') {
+    const v = val as { seconds: number; nanoseconds?: number }
+    return Timestamp.fromMillis(v.seconds * 1000 + ((v.nanoseconds ?? 0) / 1e6))
+  }
+  return Timestamp.now()
+}
+
+/** Restore a deleted comment (for undo). */
+export async function restoreComment(
+  boardId: string,
+  commentId: string,
+  data: {
+    position: { x: number; y: number }
+    authorId: string
+    authorName: string | null
+    text: string
+    replies: Array<{ authorId: string; authorName: string | null; text: string; timestamp: unknown }>
+    createdAt?: unknown
+    updatedAt?: unknown
+  }
+): Promise<void> {
+  const commentRef = doc(db, 'boards', boardId, 'comments', commentId)
+  const revivedReplies = (data.replies ?? []).map((r) => ({
+    ...r,
+    timestamp: reviveTimestamp(r.timestamp),
+  }))
+  await setDoc(commentRef, {
+    position: data.position,
+    authorId: data.authorId,
+    authorName: data.authorName,
+    text: data.text,
+    replies: revivedReplies,
+    createdAt: reviveTimestamp(data.createdAt),
     updatedAt: serverTimestamp(),
   })
 }
