@@ -23,6 +23,7 @@ export interface CursorPosition {
   y: number
   displayName: string | null
   color: string
+  lastUpdated?: number
 }
 
 const CURSOR_COLORS = [
@@ -84,6 +85,7 @@ export function updateCursor(boardId: string, x: number, y: number): void {
             y: pendingCursor.y,
             displayName: user.displayName ?? (user.email ? user.email.split('@')[0] : null),
             color: hashToColor(user.uid),
+            lastUpdated: Date.now(),
           }
           set(cursorRef, payload)
           pendingCursor = null
@@ -102,6 +104,7 @@ export function updateCursor(boardId: string, x: number, y: number): void {
     y,
     displayName: user.displayName ?? (user.email ? user.email.split('@')[0] : null),
     color: hashToColor(user.uid),
+    lastUpdated: Date.now(),
   }
   set(cursorRef, payload)
 }
@@ -150,6 +153,7 @@ export function subscribeToCursors(
             y: v.y as number,
             displayName: (v.displayName as string | null) ?? null,
             color: (v.color as string) ?? '#888',
+            lastUpdated: typeof v.lastUpdated === 'number' ? v.lastUpdated : undefined,
           })
         }
       }

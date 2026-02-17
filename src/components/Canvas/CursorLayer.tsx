@@ -1,7 +1,9 @@
-import { memo } from 'react'
+import { memo, useState, useEffect } from 'react'
 import { Layer, Group, Circle, Text } from 'react-konva'
 import type { CursorPosition } from '../../services/presence'
 import type { Viewport } from './InfiniteCanvas'
+
+const CURSOR_IDLE_TIMEOUT_MS = 5000 // Hide cursor after 5s without movement
 
 interface CursorLayerProps {
   cursors: CursorPosition[]
@@ -20,7 +22,17 @@ function CursorLayer({
   viewport,
   currentUserId,
 }: CursorLayerProps) {
-  const otherCursors = cursors.filter((c) => c.userId !== currentUserId)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [])
+
+  const otherCursors = cursors.filter((c) => {
+    if (c.userId === currentUserId) return false
+    if (c.lastUpdated == null) return true
+    return now - c.lastUpdated < CURSOR_IDLE_TIMEOUT_MS
+  })
 
   return (
     <Layer listening={false}>

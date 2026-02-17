@@ -196,7 +196,6 @@ export default function InviteModal({ boardId, onClose, onBoardUpdated }: Invite
               {members.map((m) => (
                 <li key={m.userId} className="members-list-item">
                   <span className="member-email">{m.email}</span>
-                  <span className="member-role">{m.role}</span>
                 </li>
               ))}
             </ul>
