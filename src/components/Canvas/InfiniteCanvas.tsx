@@ -141,7 +141,7 @@ function InfiniteCanvas({
       if (!stage) return
       const pos = stage.getPointerPosition()
       if (!pos) return
-      const { x: startX, y: startY, vx, vy } = panStartRef.current
+      const { x: startX, y: startY } = panStartRef.current
       const dx = pos.x - startX
       const dy = pos.y - startY
       pendingPanRef.current = { dx, dy }

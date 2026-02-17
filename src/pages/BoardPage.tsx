@@ -289,8 +289,8 @@ export default function BoardPage() {
   }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo])
 
   const cursorLayerEl = useMemo(
-    () => <CursorLayer cursors={cursors} viewport={viewport} currentUserId={user.uid} />,
-    [cursors, viewport, user.uid]
+    () => <CursorLayer cursors={cursors} viewport={viewport} currentUserId={user?.uid ?? ''} />,
+    [cursors, viewport, user?.uid]
   )
 
   const handleStageMouseMove = useCallback(
