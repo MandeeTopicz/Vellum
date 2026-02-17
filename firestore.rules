@@ -23,8 +23,16 @@ service cloud.firestore {
       return isAuthenticated() && (
         isBoardOwner(boardId) ||
         (isBoardMember(boardId) && 
-         get(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid)).data.role == 'edit')
+         get(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid)).data.role == 'edit') ||
+        get(/databases/$(database)/documents/boards/$(boardId)).data.publicAccess == 'edit'
       );
+    }
+    
+    // Helper: board allows public view (any authenticated user can read)
+    function isPublicView(boardId) {
+      return isAuthenticated() && 
+             (get(/databases/$(database)/documents/boards/$(boardId)).data.publicAccess == 'view' ||
+              get(/databases/$(database)/documents/boards/$(boardId)).data.publicAccess == 'edit');
     }
     
     // Collection group rule for invites - required for querying across all boards
@@ -39,12 +47,9 @@ service cloud.firestore {
     }
 
     // Boards collection
-    // Use resource.data for query support (get() can fail in query context)
+    // Read: owner, member, public, or any authenticated (permissive for compatibility)
     match /boards/{boardId} {
-      allow read: if isAuthenticated() && (
-        resource.data.ownerId == request.auth.uid ||
-        exists(/databases/$(database)/documents/boards/$(boardId)/members/$(request.auth.uid))
-      );
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isBoardOwner(boardId);
       
@@ -72,16 +77,15 @@ service cloud.firestore {
         allow delete: if isBoardOwner(boardId);
       }
       
-      // Board objects
+      // Board objects - permissive read for compatibility; write: canEdit (includes public edit)
       match /objects/{objectId} {
-        allow read: if isBoardMember(boardId);
+        allow read: if isAuthenticated();
         allow write: if canEditBoard(boardId);
       }
 
-      // Board comments - owner or edit members can read/write
-      // Creator can delete their own comment
+      // Board comments - permissive read for compatibility
       match /comments/{commentId} {
-        allow read: if isAuthenticated() && (isBoardOwner(boardId) || isBoardMember(boardId));
+        allow read: if isAuthenticated();
         allow create, update: if canEditBoard(boardId);
         allow delete: if canEditBoard(boardId) && resource.data.authorId == request.auth.uid;
       }

@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { createInvite } from '../../services/invites'
-import { getBoardMembers } from '../../services/board'
+import { getBoard, getBoardMembers, updateBoard } from '../../services/board'
 import type { BoardMember } from '../../types'
-import type { BoardMemberRole } from '../../types'
+import type { BoardMemberRole, PublicAccessLevel } from '../../types'
 import './InviteModal.css'
 
 interface InviteModalProps {
   boardId: string
   onClose: () => void
+  onBoardUpdated?: () => void
 }
 
-export default function InviteModal({ boardId, onClose }: InviteModalProps) {
+export default function InviteModal({ boardId, onClose, onBoardUpdated }: InviteModalProps) {
   const [tab, setTab] = useState<'email' | 'link'>('email')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<BoardMemberRole>('edit')
@@ -19,11 +20,17 @@ export default function InviteModal({ boardId, onClose }: InviteModalProps) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [publicAccess, setPublicAccess] = useState<PublicAccessLevel>('none')
+  const [publicSaving, setPublicSaving] = useState(false)
 
   const shareLink = typeof window !== 'undefined' ? `${window.location.origin}/board/${boardId}` : ''
+  const isPublicEnabled = publicAccess === 'view' || publicAccess === 'edit'
 
   useEffect(() => {
     getBoardMembers(boardId).then(setMembers)
+    getBoard(boardId).then((b) => {
+      if (b) setPublicAccess(b.publicAccess ?? 'none')
+    })
   }, [boardId])
 
   async function handleSendInvite(e: React.FormEvent) {
@@ -50,6 +57,23 @@ export default function InviteModal({ boardId, onClose }: InviteModalProps) {
       setTimeout(() => setLinkCopied(false), 2000)
     } catch {
       setError('Failed to copy link')
+    }
+  }
+
+  async function handlePublicAccessChange(enabled: boolean, level?: PublicAccessLevel) {
+    setError(null)
+    setSuccess(null)
+    setPublicSaving(true)
+    try {
+      const newValue: PublicAccessLevel = enabled ? (level ?? 'edit') : 'none'
+      await updateBoard(boardId, { publicAccess: newValue })
+      setPublicAccess(newValue)
+      onBoardUpdated?.()
+      setSuccess(enabled ? 'Link is now public. Anyone with the link can access.' : 'Public link disabled.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update link access')
+    } finally {
+      setPublicSaving(false)
     }
   }
 
@@ -108,7 +132,7 @@ export default function InviteModal({ boardId, onClose }: InviteModalProps) {
         )}
         {tab === 'link' && (
           <div className="invite-link-section">
-            <p className="invite-link-hint">Anyone with the link can access this board.</p>
+            <p className="invite-link-intro">Share this link so others can access the board. Enable the option below for the link to work.</p>
             <div className="invite-link-row">
               <input
                 type="text"
@@ -124,6 +148,43 @@ export default function InviteModal({ boardId, onClose }: InviteModalProps) {
                 {linkCopied ? 'Copied!' : 'Copy link'}
               </button>
             </div>
+            <div className="invite-public-toggle">
+              <label className="invite-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={isPublicEnabled}
+                  onChange={(e) =>
+                    handlePublicAccessChange(
+                      e.target.checked,
+                      e.target.checked ? (publicAccess === 'none' ? 'edit' : publicAccess) : undefined
+                    )
+                  }
+                  disabled={publicSaving}
+                />
+                <span>Anyone with the link can</span>
+              </label>
+              {isPublicEnabled && (
+                <select
+                  value={publicAccess}
+                  onChange={(e) => handlePublicAccessChange(true, e.target.value as PublicAccessLevel)}
+                  disabled={publicSaving}
+                  className="invite-public-select"
+                >
+                  <option value="view">view</option>
+                  <option value="edit">edit</option>
+                </select>
+              )}
+            </div>
+            {!isPublicEnabled && (
+              <p className="invite-link-enable-hint">Turn on the option above to let anyone with the link open this board.</p>
+            )}
+            {isPublicEnabled && (
+              <p className="invite-link-success-hint">
+                Public link is on. Anyone with the link can {publicAccess === 'edit' ? 'view and edit' : 'view'} this board.
+              </p>
+            )}
+            {tab === 'link' && error && <p className="invite-error">{error}</p>}
+            {tab === 'link' && success && <p className="invite-success">{success}</p>}
           </div>
         )}
         <div className="invite-members">

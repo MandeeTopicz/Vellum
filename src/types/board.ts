@@ -15,10 +15,14 @@ export interface BoardMember {
   addedAt: Timestamp
 }
 
+/** Public access level: none = members only, view = anyone can view, edit = anyone can edit */
+export type PublicAccessLevel = 'none' | 'view' | 'edit'
+
 export interface Board {
   id: string
   name: string
   ownerId: string
+  publicAccess?: PublicAccessLevel
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -30,6 +34,7 @@ export interface Board {
 export interface BoardDoc {
   name: string
   ownerId: string
+  publicAccess?: PublicAccessLevel
   createdAt: Timestamp
   updatedAt: Timestamp
 }

@@ -17,7 +17,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore'
 import { db, auth } from './firebase'
-import type { Board, BoardDoc, BoardMember, BoardMemberRole } from '../types'
+import type { Board, BoardDoc, BoardMember, BoardMemberRole, PublicAccessLevel } from '../types'
 
 const BOARDS = 'boards'
 const MEMBERS = 'members'
@@ -48,6 +48,7 @@ export async function createBoard(name: string): Promise<string> {
   } = {
     name: name || 'Untitled Board',
     ownerId: user.uid,
+    publicAccess: 'none',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
@@ -74,12 +75,13 @@ export async function getBoard(boardId: string): Promise<Board | null> {
   return {
     id: snap.id,
     ...data,
+    publicAccess: data.publicAccess ?? 'none',
   }
 }
 
 export async function updateBoard(
   boardId: string,
-  updates: Partial<Pick<BoardDoc, 'name'>>
+  updates: Partial<Pick<BoardDoc, 'name' | 'publicAccess'>>
 ): Promise<void> {
   await updateDoc(boardRef(boardId), {
     ...updates,
@@ -274,9 +276,15 @@ export async function getCurrentUserRole(boardId: string): Promise<BoardMemberRo
   if (board.ownerId === user.uid) return 'owner'
 
   const memberSnap = await getDoc(memberRef(boardId, user.uid))
-  if (!memberSnap.exists()) return null
-  return (memberSnap.data().role as BoardMemberRole) ?? null
+  if (memberSnap.exists()) return (memberSnap.data().role as BoardMemberRole) ?? null
+
+  const publicAccess = board.publicAccess ?? 'none'
+  if (publicAccess === 'edit') return 'edit'
+  if (publicAccess === 'view') return 'view'
+  return null
 }
+
+export type { PublicAccessLevel }
 
 export async function canCurrentUserEdit(boardId: string): Promise<boolean> {
   const role = await getCurrentUserRole(boardId)

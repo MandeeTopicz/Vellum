@@ -108,6 +108,12 @@ export async function getMyPendingInvites(): Promise<BoardInvite[]> {
   }
 }
 
+/** Get pending invite for the current user on a specific board, if any */
+export async function getPendingInviteForBoard(boardId: string): Promise<BoardInvite | null> {
+  const invites = await getMyPendingInvites()
+  return invites.find((inv) => inv.boardId === boardId) ?? null
+}
+
 export async function acceptInvite(boardId: string, inviteId: string): Promise<void> {
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')

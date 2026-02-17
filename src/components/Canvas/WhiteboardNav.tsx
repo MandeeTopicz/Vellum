@@ -10,6 +10,7 @@ interface WhiteboardNavProps {
   onShareClick: () => void
   canEdit: boolean
   canShare: boolean
+  publicAccess?: 'none' | 'view' | 'edit'
 }
 
 export default function WhiteboardNav({
@@ -18,6 +19,7 @@ export default function WhiteboardNav({
   onShareClick,
   canEdit,
   canShare,
+  publicAccess = 'none',
 }: WhiteboardNavProps) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState(boardName)
@@ -51,6 +53,11 @@ export default function WhiteboardNav({
           Vellum
         </Link>
         <div className="whiteboard-nav-board-name">
+          {(publicAccess === 'view' || publicAccess === 'edit') && (
+            <span className="whiteboard-nav-public-badge" title={publicAccess === 'edit' ? 'Anyone with the link can edit' : 'Anyone with the link can view'}>
+              Public
+            </span>
+          )}
           {editingName && canEdit ? (
             <input
               ref={inputRef}

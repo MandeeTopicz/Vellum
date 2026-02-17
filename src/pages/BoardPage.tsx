@@ -43,6 +43,8 @@ import TextBoxEditor from '../components/Canvas/TextBoxEditor'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
+import { getPendingInviteForBoard, acceptInvite } from '../services/invites'
+import type { BoardInvite } from '../types'
 import './BoardPage.css'
 
 export default function BoardPage() {
@@ -52,6 +54,7 @@ export default function BoardPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [board, setBoard] = useState<BoardType | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
+  const [pendingInvite, setPendingInvite] = useState<BoardInvite | null>(null)
   const [loading, setLoading] = useState(true)
   const [canEdit, setCanEdit] = useState(false)
   const [objects, setObjects] = useState<ObjectsMap>({})
@@ -107,6 +110,7 @@ export default function BoardPage() {
 
   useEffect(() => {
     if (!id || !user) return
+    const uid = user.uid
     let cancelled = false
     async function load() {
       try {
@@ -115,19 +119,46 @@ export default function BoardPage() {
         if (!b) {
           setAccessDenied(true)
           setBoard(null)
+          setPendingInvite(null)
+          return
+        }
+        // Owner always has access
+        if (b.ownerId === uid) {
+          setBoard(b)
+          setAccessDenied(false)
+          setPendingInvite(null)
+          const edit = await canCurrentUserEdit(id)
+          if (!cancelled) setCanEdit(edit)
           return
         }
         const role = await getCurrentUserRole(id)
         if (cancelled) return
         if (role === null) {
-          setAccessDenied(true)
-          setBoard(null)
+          const invite = await getPendingInviteForBoard(id)
+          if (cancelled) return
+          if (invite) {
+            setBoard(b)
+            setPendingInvite(invite)
+            setAccessDenied(false)
+          } else {
+            setAccessDenied(true)
+            setBoard(b)
+            setPendingInvite(null)
+          }
           return
         }
         setBoard(b)
         setAccessDenied(false)
+        setPendingInvite(null)
         const edit = await canCurrentUserEdit(id)
         if (!cancelled) setCanEdit(edit)
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[BoardPage] load error:', err)
+          setAccessDenied(true)
+          setBoard(null)
+          setPendingInvite(null)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -136,7 +167,7 @@ export default function BoardPage() {
     return () => {
       cancelled = true
     }
-  }, [id, user])
+  }, [id, user?.uid])
 
   useEffect(() => {
     if (!id || !user) return
@@ -583,10 +614,41 @@ export default function BoardPage() {
       </div>
     )
   }
+  if (pendingInvite && board) {
+    return (
+      <div className="board-page-denied board-page-invite">
+        <p>You&apos;ve been invited to <strong>{board.name || 'Untitled Board'}</strong>.</p>
+        <p className="board-page-invite-sub">Accept the invite to view and collaborate.</p>
+        <div className="board-page-denied-actions">
+          <button
+            type="button"
+            className="board-page-btn-primary"
+            onClick={async () => {
+              try {
+                await acceptInvite(id, pendingInvite.id)
+                setPendingInvite(null)
+                window.location.reload()
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Failed to accept invite')
+              }
+            }}
+          >
+            Accept invite
+          </button>
+          <button type="button" onClick={() => navigate('/dashboard')}>
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (accessDenied) {
     return (
       <div className="board-page-denied">
-        <p>You don&apos;t have access to this board.</p>
+        <p>You don&apos;t have access to this board{board ? ` (${board.name || 'Untitled Board'})` : ''}.</p>
+        <p className="board-page-denied-hint">
+          Ask the owner to invite you or enable &quot;Anyone with the link can view/edit&quot; in Share settings.
+        </p>
         <button type="button" onClick={() => navigate('/dashboard')}>
           Back to Dashboard
         </button>
@@ -606,8 +668,9 @@ export default function BoardPage() {
         boardName={board.name || 'Untitled Board'}
         onBoardNameChange={handleBoardNameChange}
         onShareClick={() => setShareModalOpen(true)}
-        canEdit={canEdit && board.ownerId === user.uid}
+        canEdit={canEdit}
         canShare={board.ownerId === user.uid}
+        publicAccess={board.publicAccess ?? 'none'}
       />
 
       <div ref={containerRef} className="board-canvas-container">
@@ -708,6 +771,10 @@ export default function BoardPage() {
           <InviteModal
             boardId={id}
             onClose={() => setShareModalOpen(false)}
+            onBoardUpdated={async () => {
+              const b = await getBoard(id)
+              if (b) setBoard(b)
+            }}
           />
         )}
       </div>
