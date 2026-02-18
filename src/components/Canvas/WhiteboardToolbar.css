@@ -115,6 +115,32 @@
   cursor: not-allowed;
 }
 
+.toolbar-ai-panel {
+  min-width: 260px;
+}
+
+.toolbar-ai-label {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.toolbar-ai-input {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.toolbar-ai-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
 .toolbar-emoji-panel {
   min-width: 200px;
 }

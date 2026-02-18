@@ -52,8 +52,18 @@ Open http://localhost:5173
 ### 4. Build and deploy
 
 ```bash
+npm install
+cd functions && npm install && cd ..
 npm run build
 firebase deploy
+```
+
+**AI Agent (Cloud Functions):** Set the OpenAI API key before deploying functions:
+
+```bash
+firebase functions:secrets:set OPENAI_API_KEY
+# Enter your OpenAI API key when prompted
+firebase deploy --only functions
 ```
 
 ---
@@ -88,3 +98,35 @@ firebase deploy
 2. **Objects** – Firestore `boards/{id}/objects`. Real-time via `subscribeToObjects`.
 3. **Comments** – Firestore `boards/{id}/comments`. Position stored in canvas coords.
 4. **Presence** – Realtime DB for live cursors and user presence.
+
+---
+
+## 🧪 Testing
+
+Vellum uses a comprehensive testing strategy:
+
+- **Unit Tests**: Vitest for testing individual functions and components
+- **E2E Tests**: Playwright for end-to-end user flows across Chrome, Firefox, and Safari
+- **Local Testing**: Firebase Emulators for testing without hitting production
+
+### Running Tests
+
+```bash
+# Unit tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+
+# Start Firebase emulators
+npm run emulators
+```
+
+**First-time E2E:** Install Playwright browsers once with `npm run test:e2e:install` (or `npx playwright install`).
+
+### Test Coverage
+
+- Object data structure validation
+- User authentication flows
+- Landing page functionality
+- Multi-browser compatibility

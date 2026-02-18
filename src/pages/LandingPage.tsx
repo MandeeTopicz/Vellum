@@ -20,6 +20,7 @@ export default function LandingPage() {
             type="button"
             className="landing-nav-btn"
             onClick={() => navigate('/login')}
+            data-testid="login-btn"
           >
             Login
           </button>
@@ -42,6 +43,7 @@ export default function LandingPage() {
             type="button"
             className="landing-hero-cta"
             onClick={() => navigate('/login')}
+            data-testid="get-started-btn"
           >
             Get Started
           </button>

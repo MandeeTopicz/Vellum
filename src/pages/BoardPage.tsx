@@ -21,7 +21,6 @@ import { loadUndoStacks, saveUndoStacks, MAX_STACK_SIZE } from '../services/undo
 import {
   setUserPresence,
   subscribeToPresence,
-  subscribeToCursors,
   updateCursor,
 } from '../services/presence'
 import { useAuth } from '../context/AuthContext'
@@ -29,7 +28,6 @@ import type { Board as BoardType } from '../types'
 import type { ObjectsMap, LineObject, BoardObject } from '../types'
 import type { BoardComment } from '../services/comments'
 import type { PresenceUser } from '../services/presence'
-import type { CursorPosition } from '../services/presence'
 import InfiniteCanvas, {
   type Viewport,
   type BackgroundClickPayload,
@@ -48,6 +46,7 @@ import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
 import { getPendingInviteForBoard, acceptInvite } from '../services/invites'
+import { processAICommand } from '../services/aiAgent'
 import type { BoardInvite } from '../types'
 import './BoardPage.css'
 
@@ -64,7 +63,6 @@ export default function BoardPage() {
   const [objects, setObjects] = useState<ObjectsMap>({})
   const [comments, setComments] = useState<BoardComment[]>([])
   const [, setPresence] = useState<PresenceUser[]>([])
-  const [cursors, setCursors] = useState<CursorPosition[]>([])
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 })
   const [activeTool, setActiveTool] = useState<WhiteboardTool>('pointer')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -206,26 +204,6 @@ export default function BoardPage() {
     return unsub
   }, [id])
 
-  const cursorsRef = useRef<CursorPosition[]>([])
-  const setCursorsThrottled = useCallback((newCursors: CursorPosition[]) => {
-    const prev = cursorsRef.current
-    if (prev.length !== newCursors.length) {
-      cursorsRef.current = newCursors
-      setCursors(newCursors)
-      return
-    }
-    const prevKey = prev.map((c) => `${c.userId}:${c.x.toFixed(0)}:${c.y.toFixed(0)}`).sort().join('|')
-    const newKey = newCursors.map((c) => `${c.userId}:${c.x.toFixed(0)}:${c.y.toFixed(0)}`).sort().join('|')
-    if (prevKey === newKey) return
-    cursorsRef.current = newCursors
-    setCursors(newCursors)
-  }, [])
-  useEffect(() => {
-    if (!id) return
-    const unsub = subscribeToCursors(id, setCursorsThrottled)
-    return unsub
-  }, [id, setCursorsThrottled])
-
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -339,8 +317,8 @@ export default function BoardPage() {
   }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo])
 
   const cursorLayerEl = useMemo(
-    () => <CursorLayer cursors={cursors} viewport={viewport} currentUserId={user?.uid ?? ''} />,
-    [cursors, viewport, user?.uid]
+    () => <CursorLayer boardId={id} viewport={viewport} currentUserId={user?.uid ?? ''} />,
+    [id, viewport, user?.uid]
   )
 
   const lastCursorUpdateRef = useRef(0)
@@ -419,6 +397,46 @@ export default function BoardPage() {
       })
     },
     []
+  )
+
+  const handleAICommand = useCallback(
+    async (prompt: string) => {
+      if (!id || !canEdit) return
+
+      // Compute the current viewport center in canvas coordinates so the AI
+      // places objects where the user is actually looking.
+      const vp = viewportRef.current
+      const canvasCenterX = (dimensions.width / 2 - vp.x) / vp.scale
+      const canvasCenterY = (dimensions.height / 2 - vp.y) / vp.scale
+      const viewportCenter = { x: canvasCenterX, y: canvasCenterY }
+
+      const result = await processAICommand(id, prompt, Object.values(objects), viewportCenter)
+      if (!result.success) {
+        alert(result.message)
+        return
+      }
+      if (result.createdItems?.length) {
+        for (const { objectId, createInput } of result.createdItems) {
+          pushUndo({ type: 'create', objectId, createInput })
+        }
+
+        // Pan the viewport to center on the newly created objects so they
+        // are always visible regardless of where the user was looking.
+        const positions = result.createdItems
+          .map((c) => ('position' in c.createInput ? c.createInput.position : null))
+          .filter((p): p is { x: number; y: number } => p != null)
+        if (positions.length > 0) {
+          const avgX = positions.reduce((s, p) => s + p.x, 0) / positions.length
+          const avgY = positions.reduce((s, p) => s + p.y, 0) / positions.length
+          setViewport((prev) => ({
+            ...prev,
+            x: dimensions.width / 2 - avgX * prev.scale,
+            y: dimensions.height / 2 - avgY * prev.scale,
+          }))
+        }
+      }
+    },
+    [id, canEdit, objects, pushUndo, dimensions]
   )
 
   const handleObjectResizeEnd = useCallback(
@@ -534,6 +552,9 @@ export default function BoardPage() {
         if (input) {
           const objectId = await createObject(id, input)
           pushUndo({ type: 'create', objectId, createInput: input })
+          if (activeTool === 'sticky') {
+            setEditingStickyId(objectId)
+          }
         }
       }
       if (activeTool === 'emoji' && canEdit) {
@@ -765,7 +786,7 @@ export default function BoardPage() {
         publicAccess={board.publicAccess ?? 'none'}
       />
 
-      <div ref={containerRef} className="board-canvas-container">
+      <div ref={containerRef} className="board-canvas-container" data-testid="canvas">
         <InfiniteCanvas
           width={dimensions.width}
           height={dimensions.height}
@@ -806,6 +827,7 @@ export default function BoardPage() {
           onEmojiSelect={handleEmojiSelect}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          onAICommand={handleAICommand}
           canEdit={canEdit}
         />
 
