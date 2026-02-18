@@ -12,6 +12,7 @@ import type {
   EmojiObject,
 } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
+import { stageToCanvas } from '../../utils/coordinates'
 
 export type ObjectResizeUpdates =
   | { position: { x: number; y: number }; dimensions: { width: number; height: number } }
@@ -30,15 +31,9 @@ interface ObjectLayerProps {
   canEdit: boolean
 }
 
-/** Convert stage/screen coordinates to canvas/world coordinates */
-function screenToCanvas(screenX: number, screenY: number, viewport: Viewport) {
-  return {
-    x: (screenX - viewport.x) / viewport.scale,
-    y: (screenY - viewport.y) / viewport.scale,
-  }
-}
-
 const MIN_SIZE = 20
+/** Minimum line selection box size - larger than MIN_SIZE for easier resizing at 100% zoom */
+const MIN_LINE_HIT = 36
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false
@@ -224,11 +219,12 @@ const shapeHandlers = (
   onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void,
   isPointerTool: boolean
 ) => ({
+  listening: isPointerTool,
   draggable: canEdit && isPointerTool && selected,
   onDragEnd: (e: { target: { getAbsolutePosition: () => { x: number; y: number }; position: (p: { x: number; y: number }) => void } }) => {
     const node = e.target
     const absPos = node.getAbsolutePosition()
-    const canvasPos = screenToCanvas(absPos.x, absPos.y, viewport)
+    const canvasPos = stageToCanvas(absPos.x, absPos.y, viewport)
     onObjectDragEnd(objectId, canvasPos.x, canvasPos.y)
     node.position({ x: canvasPos.x, y: canvasPos.y })
   },
@@ -613,8 +609,10 @@ function LineShape({
   const { objectId, start, end, strokeColor, strokeWidth } = obj
   const minX = Math.min(start.x, end.x)
   const minY = Math.min(start.y, end.y)
-  const width = Math.abs(end.x - start.x) || MIN_SIZE
-  const height = Math.abs(end.y - start.y) || MIN_SIZE
+  const lineW = Math.abs(end.x - start.x) || MIN_SIZE
+  const lineH = Math.abs(end.y - start.y) || MIN_SIZE
+  const width = Math.max(lineW, MIN_LINE_HIT)
+  const height = Math.max(lineH, MIN_LINE_HIT)
   const points = [start.x - minX, start.y - minY, end.x - minX, end.y - minY]
 
   useEffect(() => {
@@ -631,18 +629,25 @@ function LineShape({
     node.scaleX(1)
     node.scaleY(1)
     const newStart = { x: node.x(), y: node.y() }
-    const dx = (end.x - start.x) * scaleX
-    const dy = (end.y - start.y) * scaleY
-    let ndx = dx
-    let ndy = dy
-    if (Math.abs(ndx) < MIN_SIZE && Math.abs(ndy) < MIN_SIZE) {
-      ndx = width >= height ? MIN_SIZE : 0
-      ndy = width >= height ? 0 : MIN_SIZE
+    const signX = end.x >= start.x ? 1 : -1
+    const signY = end.y >= start.y ? 1 : -1
+    let dx = width * scaleX * signX
+    let dy = height * scaleY * signY
+    if (Math.abs(dx) < MIN_SIZE && Math.abs(dy) < MIN_SIZE) {
+      dx = lineW >= lineH ? (signX * MIN_SIZE) : 0
+      dy = lineW >= lineH ? 0 : signY * MIN_SIZE
     }
-    const newEnd = { x: newStart.x + ndx, y: newStart.y + ndy }
+    const newEnd = { x: newStart.x + dx, y: newStart.y + dy }
+    const newLineW = Math.abs(dx) || MIN_SIZE
+    const newLineH = Math.abs(dy) || MIN_SIZE
+    const rect = node.findOne('Rect')
+    if (rect) {
+      rect.width(Math.max(newLineW, MIN_LINE_HIT))
+      rect.height(Math.max(newLineH, MIN_LINE_HIT))
+    }
     const line = node.findOne('Line') as Konva.Line | undefined
     if (line) {
-      line.points([0, 0, newEnd.x - newStart.x, newEnd.y - newStart.y])
+      line.points([0, 0, dx, dy])
       onObjectResizeEnd(objectId, { start: newStart, end: newEnd })
     }
   }
@@ -656,17 +661,28 @@ function LineShape({
         {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
+        <Rect
+          width={width}
+          height={height}
+          fill="transparent"
+          stroke="transparent"
+          listening={isPointerTool}
+          perfectDrawEnabled={false}
+        />
         <Line
           points={points}
           stroke={selected ? '#4f46e5' : strokeColor ?? '#000'}
           strokeWidth={selected ? 3 : strokeWidth ?? 2}
           perfectDrawEnabled={false}
+          listening={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
         <Transformer
           ref={trRef}
           rotateEnabled={false}
+          anchorSize={12}
+          anchorStrokeWidth={2}
           boundBoxFunc={(_, newBox) =>
             Math.abs(newBox.width) < MIN_SIZE || Math.abs(newBox.height) < MIN_SIZE ? _ : newBox
           }

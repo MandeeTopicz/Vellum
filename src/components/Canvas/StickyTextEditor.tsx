@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import type { StickyObject } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
+import { canvasToStage } from '../../utils/coordinates'
 
 interface StickyTextEditorProps {
   sticky: StickyObject
@@ -17,8 +18,7 @@ export default function StickyTextEditor({
 }: StickyTextEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const screenX = viewport.x + sticky.position.x * viewport.scale
-  const screenY = viewport.y + sticky.position.y * viewport.scale
+  const { x: screenX, y: screenY } = canvasToStage(sticky.position.x, sticky.position.y, viewport)
   const screenW = sticky.dimensions.width * viewport.scale
   const screenH = sticky.dimensions.height * viewport.scale
 

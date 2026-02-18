@@ -1,11 +1,20 @@
 import { memo, useRef, useCallback, useState, useMemo } from 'react'
 import { Stage, Layer, Group, Rect, Circle } from 'react-konva'
 import type Konva from 'konva'
+import { stageToCanvas } from '../../utils/coordinates'
+import type { Viewport } from '../../utils/coordinates'
 
-export interface Viewport {
+export type { Viewport }
+
+/** Re-export for consumers that need canvasToStage (e.g. overlays) */
+export { canvasToStage } from '../../utils/coordinates'
+
+/** Payload from background click: canvas coords (single source of truth) + DOM client coords for fixed overlays */
+export interface BackgroundClickPayload {
   x: number
   y: number
-  scale: number
+  clientX?: number
+  clientY?: number
 }
 
 const ZOOM_SENSITIVITY = 0.001
@@ -61,7 +70,8 @@ interface InfiniteCanvasProps {
   viewport: Viewport
   onViewportChange: (v: Viewport) => void
   onMouseMove?: (e: Konva.KonvaEventObject<MouseEvent>) => void
-  onBackgroundClick?: (worldPos: { x: number; y: number; clientX?: number; clientY?: number }) => void
+  /** Canvas coords (x,y) + clientX/clientY for fixed overlays. Conversion happens ONCE here. */
+  onBackgroundClick?: (payload: BackgroundClickPayload) => void
   showGrid?: boolean
   creationToolActive?: boolean
   editingTextOpen?: boolean
@@ -77,7 +87,7 @@ function InfiniteCanvas({
   onMouseMove,
   onBackgroundClick,
   showGrid = true,
-  creationToolActive = false,
+  creationToolActive: _creationToolActive = false,
   editingTextOpen = false,
   children,
   cursorLayer,
@@ -123,7 +133,10 @@ function InfiniteCanvas({
 
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (creationToolActive || editingTextOpen) return
+      if (editingTextOpen) {
+        didPanRef.current = false
+        return
+      }
       const target = e.target
       const targetName = target.name()
       const isBackground = targetName === 'background' || targetName === 'stageFill' || target === target.getStage()
@@ -134,12 +147,13 @@ function InfiniteCanvas({
           if (pos) {
             setIsPanning(true)
             didPanRef.current = false
+            pendingPanRef.current = null
             panStartRef.current = { x: pos.x, y: pos.y, vx: viewport.x, vy: viewport.y, scale: viewport.scale }
           }
         }
       }
     },
-    [viewport, creationToolActive, editingTextOpen]
+    [viewport, editingTextOpen]
   )
 
   const handleMouseMovePan = useCallback(
@@ -205,13 +219,11 @@ function InfiniteCanvas({
         if (stage) {
           const pos = stage.getPointerPosition()
           if (pos) {
-            const v = viewportRef.current
-            const canvasX = (pos.x - v.x) / v.scale
-            const canvasY = (pos.y - v.y) / v.scale
+            const canvas = stageToCanvas(pos.x, pos.y, viewportRef.current)
             const evt = e.evt as MouseEvent
             onBackgroundClick({
-              x: canvasX,
-              y: canvasY,
+              x: canvas.x,
+              y: canvas.y,
               clientX: evt.clientX,
               clientY: evt.clientY,
             })

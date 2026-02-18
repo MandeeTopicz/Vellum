@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Viewport } from './InfiniteCanvas'
+import { canvasToStage } from '../../utils/coordinates'
 import './CommentModal.css'
 
 interface CommentModalProps {
@@ -7,6 +8,7 @@ interface CommentModalProps {
   viewport: Viewport
   canvasWidth: number
   canvasHeight: number
+  containerRef: React.RefObject<HTMLElement | null>
   onSave: (text: string) => void
   onCancel: () => void
 }
@@ -16,6 +18,7 @@ export default function CommentModal({
   viewport,
   canvasWidth,
   canvasHeight,
+  containerRef,
   onSave,
   onCancel,
 }: CommentModalProps) {
@@ -23,18 +26,26 @@ export default function CommentModal({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
+    setText('')
+  }, [position])
+
+  useEffect(() => {
     textareaRef.current?.focus()
-  }, [])
+  }, [position])
 
   if (!position) return null
 
-  const screenX = viewport.x + position.x * viewport.scale
-  const screenY = viewport.y + position.y * viewport.scale
+  const { x: stageX, y: stageY } = canvasToStage(position.x, position.y, viewport)
+  const rect = containerRef.current?.getBoundingClientRect()
+  const baseLeft = rect ? rect.left + stageX : stageX
+  const baseTop = rect ? rect.top + stageY : stageY
   const offset = 12
-  let left = screenX + offset
-  let top = screenY
-  if (left + 280 > canvasWidth) left = screenX - 280 - offset
-  if (top + 180 > canvasHeight) top = canvasHeight - 180
+  const maxLeft = rect ? rect.left + canvasWidth : canvasWidth
+  const maxTop = rect ? rect.top + canvasHeight : canvasHeight
+  let left = baseLeft + offset
+  let top = baseTop
+  if (left + 280 > maxLeft) left = baseLeft - 280 - offset
+  if (top + 180 > maxTop) top = maxTop - 180
   if (top < 8) top = 8
 
   return (

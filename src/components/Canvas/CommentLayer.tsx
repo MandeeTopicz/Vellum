@@ -10,11 +10,13 @@ function getUsername(authorName: string | null): string {
 interface CommentLayerProps {
   comments: BoardComment[]
   onCommentClick: (comment: BoardComment) => void
+  isPointerTool: boolean
 }
 
 export default function CommentLayer({
   comments,
   onCommentClick,
+  isPointerTool,
 }: CommentLayerProps) {
   return (
     <>
@@ -29,6 +31,7 @@ export default function CommentLayer({
             key={comment.id}
             x={comment.position.x}
             y={comment.position.y}
+            listening={isPointerTool}
             onClick={(e) => {
               e.cancelBubble = true
               onCommentClick(comment)

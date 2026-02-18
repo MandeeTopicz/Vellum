@@ -75,7 +75,6 @@ export default function Dashboard() {
   }
 
   async function handleDeleteBoard(boardId: string) {
-    if (!confirm('Delete this board? This cannot be undone.')) return
     try {
       await deleteBoard(boardId)
     } catch (err) {

@@ -30,7 +30,11 @@ import type { ObjectsMap, LineObject, BoardObject } from '../types'
 import type { BoardComment } from '../services/comments'
 import type { PresenceUser } from '../services/presence'
 import type { CursorPosition } from '../services/presence'
-import InfiniteCanvas, { type Viewport } from '../components/Canvas/InfiniteCanvas'
+import InfiniteCanvas, {
+  type Viewport,
+  type BackgroundClickPayload,
+  canvasToStage,
+} from '../components/Canvas/InfiniteCanvas'
 import ObjectLayer, { type ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
 import CursorLayer from '../components/Canvas/CursorLayer'
 import CommentLayer from '../components/Canvas/CommentLayer'
@@ -446,9 +450,16 @@ export default function BoardPage() {
     [id, canEdit, objects, pushUndo]
   )
 
+  /**
+   * Background click: payload has canvas coords (x,y) from stageToCanvas - SINGLE conversion at click.
+   * All object creation uses these canvas coords directly. Never convert back.
+   */
   const handleBackgroundClick = useCallback(
-    async (worldPos: { x: number; y: number }) => {
-      if (justClosedStickyEditorRef.current || justClosedTextEditorRef.current) {
+    async (payload: BackgroundClickPayload) => {
+      if (
+        activeTool === 'pointer' &&
+        (justClosedStickyEditorRef.current || justClosedTextEditorRef.current)
+      ) {
         justClosedStickyEditorRef.current = false
         justClosedTextEditorRef.current = false
         setActiveTool('pointer')
@@ -463,19 +474,21 @@ export default function BoardPage() {
         return
       }
       setSelectedIds(new Set())
+
+      const { x: canvasX, y: canvasY } = payload
+
       if (activeTool === 'comment' && canEdit) {
-        setCommentModalPos(worldPos)
+        setCommentModalPos({ x: canvasX, y: canvasY })
       }
       if (activeTool === 'text' && canEdit) {
-        const clientX = (worldPos as { clientX?: number }).clientX
-        const clientY = (worldPos as { clientY?: number }).clientY
+        const { clientX, clientY } = payload
         if (clientX != null && clientY != null) {
           setEditingText({
             id: null,
             screenX: clientX,
             screenY: clientY,
-            canvasX: worldPos.x,
-            canvasY: worldPos.y,
+            canvasX,
+            canvasY,
             value: '',
             isNew: true,
           })
@@ -485,38 +498,37 @@ export default function BoardPage() {
           activeTool === 'triangle' || activeTool === 'line') &&
         canEdit
       ) {
-        const center = worldPos
         let input: Parameters<typeof createObject>[1] | null = null
         if (activeTool === 'sticky') {
           input = {
             type: 'sticky',
-            position: { x: center.x - 100, y: center.y - 100 },
+            position: { x: canvasX - 100, y: canvasY - 100 },
             dimensions: { width: 200, height: 200 },
             fillColor: '#fef08a',
           }
         } else if (activeTool === 'rectangle') {
           input = {
             type: 'rectangle',
-            position: { x: center.x - 75, y: center.y - 50 },
+            position: { x: canvasX - 75, y: canvasY - 50 },
             dimensions: { width: 150, height: 100 },
           }
         } else if (activeTool === 'circle') {
           input = {
             type: 'circle',
-            position: { x: center.x - 50, y: center.y - 50 },
+            position: { x: canvasX - 50, y: canvasY - 50 },
             dimensions: { width: 100, height: 100 },
           }
         } else if (activeTool === 'triangle') {
           input = {
             type: 'triangle',
-            position: { x: center.x - 50, y: center.y - 40 },
+            position: { x: canvasX - 50, y: canvasY - 40 },
             dimensions: { width: 100, height: 80 },
           }
         } else if (activeTool === 'line') {
           input = {
             type: 'line',
-            start: { x: center.x - 50, y: center.y },
-            end: { x: center.x + 50, y: center.y },
+            start: { x: canvasX - 50, y: canvasY },
+            end: { x: canvasX + 50, y: canvasY },
           }
         }
         if (input) {
@@ -528,7 +540,7 @@ export default function BoardPage() {
         const emoji = pendingEmoji ?? '😀'
         const input = {
           type: 'emoji' as const,
-          position: { x: worldPos.x - 16, y: worldPos.y - 16 },
+          position: { x: canvasX - 16, y: canvasY - 16 },
           emoji,
         }
         const objectId = await createObject(id, input)
@@ -548,8 +560,10 @@ export default function BoardPage() {
       if (!canEdit) return
       const obj = objects[objectId]
       if (!obj || obj.type !== 'text') return
-      const screenX = viewport.x + obj.position.x * viewport.scale
-      const screenY = viewport.y + obj.position.y * viewport.scale
+      const stage = canvasToStage(obj.position.x, obj.position.y, viewport)
+      const rect = containerRef.current?.getBoundingClientRect()
+      const screenX = rect ? rect.left + stage.x : stage.x
+      const screenY = rect ? rect.top + stage.y : stage.y
       setEditingText({
         id: objectId,
         screenX,
@@ -668,6 +682,8 @@ export default function BoardPage() {
   }, [viewport, dimensions, getViewportCenter])
 
   const handleToolSelect = useCallback((tool: WhiteboardTool) => {
+    justClosedStickyEditorRef.current = false
+    justClosedTextEditorRef.current = false
     setActiveTool(tool)
   }, [])
 
@@ -776,6 +792,7 @@ export default function BoardPage() {
           />
           <CommentLayer
             comments={comments}
+            isPointerTool={activeTool === 'pointer'}
             onCommentClick={(comment) => {
               setCommentModalPos(null)
               setCommentThread(comment)
@@ -832,6 +849,7 @@ export default function BoardPage() {
           viewport={viewport}
           canvasWidth={dimensions.width}
           canvasHeight={dimensions.height}
+          containerRef={containerRef}
           onSave={handleCommentSave}
           onCancel={() => setCommentModalPos(null)}
         />
