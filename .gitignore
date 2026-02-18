@@ -1,2 +1,12 @@
 node_modules
 .env.local
+
+# Build output
+dist
+
+# Firebase
+.firebase
+
+# Playwright
+playwright-report/
+test-results/
