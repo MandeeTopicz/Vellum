@@ -44,6 +44,7 @@ function DotGrid({ width, height, viewport }: DotGridProps) {
             radius={GRID_DOT_RADIUS}
             fill={GRID_DOT_COLOR}
             listening={false}
+            perfectDrawEnabled={false}
           />
         )
       }
@@ -60,8 +61,10 @@ interface InfiniteCanvasProps {
   viewport: Viewport
   onViewportChange: (v: Viewport) => void
   onMouseMove?: (e: Konva.KonvaEventObject<MouseEvent>) => void
-  onBackgroundClick?: (worldPos: { x: number; y: number }) => void
+  onBackgroundClick?: (worldPos: { x: number; y: number; clientX?: number; clientY?: number }) => void
   showGrid?: boolean
+  creationToolActive?: boolean
+  editingTextOpen?: boolean
   children: React.ReactNode
   cursorLayer: React.ReactNode
 }
@@ -74,10 +77,14 @@ function InfiniteCanvas({
   onMouseMove,
   onBackgroundClick,
   showGrid = true,
+  creationToolActive = false,
+  editingTextOpen = false,
   children,
   cursorLayer,
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
+  const viewportRef = useRef(viewport)
+  viewportRef.current = viewport
   const [isPanning, setIsPanning] = useState(false)
   const panStartRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, scale: 1 })
   const didPanRef = useRef(false)
@@ -86,6 +93,7 @@ function InfiniteCanvas({
 
   const handleWheel = useCallback(
     (e: Konva.KonvaEventObject<WheelEvent>) => {
+      if (editingTextOpen) return
       e.evt.preventDefault()
       const stage = stageRef.current
       if (!stage) return
@@ -110,11 +118,12 @@ function InfiniteCanvas({
         scale: newScale,
       })
     },
-    [viewport, onViewportChange]
+    [viewport, onViewportChange, editingTextOpen]
   )
 
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (creationToolActive || editingTextOpen) return
       const target = e.target
       const targetName = target.name()
       const isBackground = targetName === 'background' || targetName === 'stageFill' || target === target.getStage()
@@ -130,7 +139,7 @@ function InfiniteCanvas({
         }
       }
     },
-    [viewport]
+    [viewport, creationToolActive, editingTextOpen]
   )
 
   const handleMouseMovePan = useCallback(
@@ -196,14 +205,21 @@ function InfiniteCanvas({
         if (stage) {
           const pos = stage.getPointerPosition()
           if (pos) {
-            const worldX = (pos.x - viewport.x) / viewport.scale
-            const worldY = (pos.y - viewport.y) / viewport.scale
-            onBackgroundClick({ x: worldX, y: worldY })
+            const v = viewportRef.current
+            const canvasX = (pos.x - v.x) / v.scale
+            const canvasY = (pos.y - v.y) / v.scale
+            const evt = e.evt as MouseEvent
+            onBackgroundClick({
+              x: canvasX,
+              y: canvasY,
+              clientX: evt.clientX,
+              clientY: evt.clientY,
+            })
           }
         }
       }
     },
-    [viewport, onBackgroundClick]
+    [onBackgroundClick]
   )
 
   return (

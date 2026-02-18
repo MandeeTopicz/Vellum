@@ -55,6 +55,7 @@ export async function createBoard(name: string): Promise<string> {
 
   const ref = await addDoc(boardsCol(), boardDoc)
   console.log('[board] createBoard saved to Firestore:', { boardId: ref.id, name, ownerId: user.uid })
+  console.log('[board] createBoard saved to Firestore:', { boardId: ref.id, name, ownerId: user.uid })
   await setDoc(memberRef(ref.id, user.uid), {
     userId: user.uid,
     email: user.email ?? '',

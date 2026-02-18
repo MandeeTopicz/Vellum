@@ -161,7 +161,7 @@ export default function WhiteboardToolbar({
         className={`toolbar-icon-btn ${activeTool === 'text' ? 'active' : ''}`}
         onClick={() => {
           closeAllDropdowns()
-          onToolSelect('text')
+          onToolSelect(activeTool === 'text' ? 'pointer' : 'text')
         }}
         disabled={!canEdit}
         title="Text Box"

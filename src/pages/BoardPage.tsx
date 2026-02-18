@@ -39,7 +39,7 @@ import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
 import WhiteboardNav from '../components/Canvas/WhiteboardNav'
 import WhiteboardControls from '../components/Canvas/WhiteboardControls'
 import StickyTextEditor from '../components/Canvas/StickyTextEditor'
-import TextBoxEditor from '../components/Canvas/TextBoxEditor'
+import TextOverlayTextarea, { type EditingTextState } from '../components/Canvas/TextOverlayTextarea'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
@@ -65,7 +65,7 @@ export default function BoardPage() {
   const [activeTool, setActiveTool] = useState<WhiteboardTool>('pointer')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null)
-  const [editingTextId, setEditingTextId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState<EditingTextState | null>(null)
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [commentModalPos, setCommentModalPos] = useState<{ x: number; y: number } | null>(null)
   const [commentThread, setCommentThread] = useState<BoardComment | null>(null)
@@ -89,6 +89,7 @@ export default function BoardPage() {
     | { type: 'deleteComment'; commentId: string; deleted: BoardComment }
   const undoStackRef = useRef<UndoAction[]>([])
   const redoStackRef = useRef<UndoAction[]>([])
+  const justClosedStickyEditorRef = useRef(false)
   const justClosedTextEditorRef = useRef(false)
   const viewportRef = useRef(viewport)
   viewportRef.current = viewport
@@ -201,11 +202,25 @@ export default function BoardPage() {
     return unsub
   }, [id])
 
+  const cursorsRef = useRef<CursorPosition[]>([])
+  const setCursorsThrottled = useCallback((newCursors: CursorPosition[]) => {
+    const prev = cursorsRef.current
+    if (prev.length !== newCursors.length) {
+      cursorsRef.current = newCursors
+      setCursors(newCursors)
+      return
+    }
+    const prevKey = prev.map((c) => `${c.userId}:${c.x.toFixed(0)}:${c.y.toFixed(0)}`).sort().join('|')
+    const newKey = newCursors.map((c) => `${c.userId}:${c.x.toFixed(0)}:${c.y.toFixed(0)}`).sort().join('|')
+    if (prevKey === newKey) return
+    cursorsRef.current = newCursors
+    setCursors(newCursors)
+  }, [])
   useEffect(() => {
     if (!id) return
-    const unsub = subscribeToCursors(id, setCursors)
+    const unsub = subscribeToCursors(id, setCursorsThrottled)
     return unsub
-  }, [id])
+  }, [id, setCursorsThrottled])
 
   useEffect(() => {
     const el = containerRef.current
@@ -324,9 +339,15 @@ export default function BoardPage() {
     [cursors, viewport, user?.uid]
   )
 
+  const lastCursorUpdateRef = useRef(0)
+  const CURSOR_THROTTLE_MS = 100
   const handleStageMouseMove = useCallback(
     (e: { target: { getStage: () => unknown } }) => {
       if (!id) return
+      if (editingText != null) return
+      const now = Date.now()
+      if (now - lastCursorUpdateRef.current < CURSOR_THROTTLE_MS) return
+      lastCursorUpdateRef.current = now
       const stage = e.target.getStage() as { getPointerPosition: () => { x: number; y: number } | null } | null
       if (!stage?.getPointerPosition) return
       const pos = stage.getPointerPosition()
@@ -336,7 +357,7 @@ export default function BoardPage() {
       const worldY = (pos.y - v.y) / v.scale
       updateCursor(id, worldX, worldY)
     },
-    [id]
+    [id, editingText]
   )
 
   const getViewportCenter = useCallback(() => {
@@ -427,13 +448,41 @@ export default function BoardPage() {
 
   const handleBackgroundClick = useCallback(
     async (worldPos: { x: number; y: number }) => {
+      if (justClosedStickyEditorRef.current || justClosedTextEditorRef.current) {
+        justClosedStickyEditorRef.current = false
+        justClosedTextEditorRef.current = false
+        setActiveTool('pointer')
+        setSelectedIds(new Set())
+        return
+      }
+      if (editingStickyId || editingText) {
+        setEditingStickyId(null)
+        setEditingText(null)
+        setActiveTool('pointer')
+        setSelectedIds(new Set())
+        return
+      }
       setSelectedIds(new Set())
       if (activeTool === 'comment' && canEdit) {
         setCommentModalPos(worldPos)
       }
-      if (
+      if (activeTool === 'text' && canEdit) {
+        const clientX = (worldPos as { clientX?: number }).clientX
+        const clientY = (worldPos as { clientY?: number }).clientY
+        if (clientX != null && clientY != null) {
+          setEditingText({
+            id: null,
+            screenX: clientX,
+            screenY: clientY,
+            canvasX: worldPos.x,
+            canvasY: worldPos.y,
+            value: '',
+            isNew: true,
+          })
+        }
+      } else if (
         (activeTool === 'sticky' || activeTool === 'rectangle' || activeTool === 'circle' ||
-          activeTool === 'triangle' || activeTool === 'line' || activeTool === 'text') &&
+          activeTool === 'triangle' || activeTool === 'line') &&
         canEdit
       ) {
         const center = worldPos
@@ -469,24 +518,10 @@ export default function BoardPage() {
             start: { x: center.x - 50, y: center.y },
             end: { x: center.x + 50, y: center.y },
           }
-        } else if (activeTool === 'text') {
-          if (justClosedTextEditorRef.current) {
-            justClosedTextEditorRef.current = false
-            return
-          }
-          input = {
-            type: 'text',
-            position: { x: center.x - 100, y: center.y - 20 },
-            dimensions: { width: 200, height: 40 },
-            content: '',
-          }
         }
         if (input) {
           const objectId = await createObject(id, input)
           pushUndo({ type: 'create', objectId, createInput: input })
-          if (activeTool === 'text') {
-            setEditingTextId(objectId)
-          }
         }
       }
       if (activeTool === 'emoji' && canEdit) {
@@ -500,7 +535,7 @@ export default function BoardPage() {
         pushUndo({ type: 'create', objectId, createInput: input })
       }
     },
-    [id, activeTool, canEdit, pendingEmoji, pushUndo]
+    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText]
   )
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
@@ -508,10 +543,25 @@ export default function BoardPage() {
     setEditingStickyId(objectId)
   }, [canEdit])
 
-  const handleTextDoubleClick = useCallback((objectId: string) => {
-    if (!canEdit) return
-    setEditingTextId(objectId)
-  }, [canEdit])
+  const handleTextDoubleClick = useCallback(
+    (objectId: string) => {
+      if (!canEdit) return
+      const obj = objects[objectId]
+      if (!obj || obj.type !== 'text') return
+      const screenX = viewport.x + obj.position.x * viewport.scale
+      const screenY = viewport.y + obj.position.y * viewport.scale
+      setEditingText({
+        id: objectId,
+        screenX,
+        screenY,
+        canvasX: obj.position.x,
+        canvasY: obj.position.y,
+        value: obj.content ?? '',
+        isNew: false,
+      })
+    },
+    [canEdit, objects, viewport]
+  )
 
   const handleStickySave = useCallback(
     async (objectId: string, content: string) => {
@@ -520,23 +570,51 @@ export default function BoardPage() {
       const oldContent = obj && obj.type === 'sticky' ? obj.content : ''
       pushUndo({ type: 'update', objectId, from: { content: oldContent }, to: { content } })
       await updateObject(id, objectId, { content })
+      justClosedStickyEditorRef.current = true
       setEditingStickyId(null)
     },
     [id, canEdit, objects, pushUndo]
   )
 
-  const handleTextSave = useCallback(
-    async (objectId: string, content: string) => {
-      if (!id || !canEdit) return
-      const obj = objects[objectId]
-      const oldContent = obj && obj.type === 'text' ? obj.content : ''
-      pushUndo({ type: 'update', objectId, from: { content: oldContent }, to: { content } })
-      await updateObject(id, objectId, { content })
+  const handleTextCommit = useCallback(
+    async (value: string) => {
+      if (!id || !canEdit || !editingText) return
+      const trimmed = value.trim()
+      if (editingText.isNew) {
+        if (trimmed === '') {
+          setEditingText(null)
+          justClosedTextEditorRef.current = true
+          setActiveTool('pointer')
+          return
+        }
+        const input = {
+          type: 'text' as const,
+          position: { x: editingText.canvasX, y: editingText.canvasY },
+          dimensions: { width: 200, height: 40 },
+          content: trimmed,
+        }
+        const objectId = await createObject(id, input)
+        pushUndo({ type: 'create', objectId, createInput: input })
+      } else {
+        const objectId = editingText.id!
+        const obj = objects[objectId]
+        const oldContent = obj && obj.type === 'text' ? obj.content : ''
+        const newContent = trimmed
+        pushUndo({ type: 'update', objectId, from: { content: oldContent }, to: { content: newContent } })
+        await updateObject(id, objectId, { content: newContent })
+      }
       justClosedTextEditorRef.current = true
-      setEditingTextId(null)
+      setEditingText(null)
+      setActiveTool('pointer')
     },
-    [id, canEdit, objects, pushUndo]
+    [id, canEdit, editingText, objects, pushUndo]
   )
+
+  const handleTextCancel = useCallback(() => {
+    setEditingText(null)
+    justClosedTextEditorRef.current = true
+    setActiveTool('pointer')
+  }, [])
 
   const handleCommentSave = useCallback(
     async (text: string) => {
@@ -606,6 +684,9 @@ export default function BoardPage() {
     [id, board, user?.uid]
   )
 
+  const editingSticky = editingStickyId ? objects[editingStickyId] : null
+  const isSticky = editingSticky?.type === 'sticky'
+
   if (!user) return null
   if (loading) {
     return (
@@ -657,11 +738,6 @@ export default function BoardPage() {
   }
   if (!board) return null
 
-  const editingSticky = editingStickyId ? objects[editingStickyId] : null
-  const editingText = editingTextId ? objects[editingTextId] : null
-  const isSticky = editingSticky?.type === 'sticky'
-  const isText = editingText?.type === 'text'
-
   return (
     <div className="board-page">
       <WhiteboardNav
@@ -682,6 +758,8 @@ export default function BoardPage() {
           onMouseMove={handleStageMouseMove}
           onBackgroundClick={handleBackgroundClick}
           showGrid={showGrid}
+          creationToolActive={activeTool !== 'pointer'}
+          editingTextOpen={editingText != null}
           cursorLayer={cursorLayerEl}
         >
           <ObjectLayer
@@ -741,12 +819,11 @@ export default function BoardPage() {
           />
         )}
 
-        {isText && editingTextId && editingText && (
-          <TextBoxEditor
-            text={editingText}
-            viewport={viewport}
-            onSave={(content) => handleTextSave(editingTextId, content)}
-            onCancel={() => setEditingTextId(null)}
+        {editingText && (
+          <TextOverlayTextarea
+            editingText={editingText}
+            onCommit={handleTextCommit}
+            onCancel={handleTextCancel}
           />
         )}
 

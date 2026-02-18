@@ -1,4 +1,4 @@
-import { memo, useRef, useEffect } from 'react'
+import { memo, useRef, useEffect, useMemo } from 'react'
 import { Group, Rect, Text, Line, Ellipse, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type {
@@ -62,11 +62,15 @@ function ObjectLayerInner({
   onTextDoubleClick,
   canEdit,
 }: ObjectLayerProps) {
-  const objectList = Object.values(objects).sort((a, b) => {
-    const aMs = a.createdAt?.toMillis?.() ?? 0
-    const bMs = b.createdAt?.toMillis?.() ?? 0
-    return aMs - bMs
-  })
+  const objectList = useMemo(
+    () =>
+      Object.values(objects).sort((a, b) => {
+        const aMs = a.createdAt?.toMillis?.() ?? 0
+        const bMs = b.createdAt?.toMillis?.() ?? 0
+        return aMs - bMs
+      }),
+    [objects]
+  )
 
   return (
     <>
@@ -215,11 +219,12 @@ const shapeHandlers = (
   objectId: string,
   viewport: Viewport,
   canEdit: boolean,
+  selected: boolean,
   onObjectDragEnd: (objectId: string, x: number, y: number) => void,
   onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void,
   isPointerTool: boolean
 ) => ({
-  draggable: canEdit && isPointerTool,
+  draggable: canEdit && isPointerTool && selected,
   onDragEnd: (e: { target: { getAbsolutePosition: () => { x: number; y: number }; position: (p: { x: number; y: number }) => void } }) => {
     const node = e.target
     const absPos = node.getAbsolutePosition()
@@ -292,7 +297,7 @@ function StickyShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onDblClick={canEdit ? () => onStickyDoubleClick(objectId) : undefined}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -306,6 +311,7 @@ function StickyShape({
           shadowBlur={6}
           shadowOffset={{ x: 1, y: 2 }}
           shadowOpacity={0.12}
+          perfectDrawEnabled={false}
         />
         <Text
           x={4}
@@ -321,6 +327,7 @@ function StickyShape({
           verticalAlign="top"
           padding={4}
           listening={false}
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -391,7 +398,7 @@ function RectangleShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
         <Rect
@@ -400,6 +407,7 @@ function RectangleShape({
           fill="transparent"
           stroke={selected ? '#4f46e5' : 'black'}
           strokeWidth={selected ? 3 : 2}
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -473,7 +481,7 @@ function CircleShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
         <Ellipse
@@ -484,6 +492,7 @@ function CircleShape({
           fill="transparent"
           stroke={selected ? '#4f46e5' : 'black'}
           strokeWidth={selected ? 3 : 2}
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -555,7 +564,7 @@ function TriangleShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
         <Line
@@ -564,6 +573,7 @@ function TriangleShape({
           stroke={selected ? '#4f46e5' : 'black'}
           strokeWidth={selected ? 3 : 2}
           closed
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -643,13 +653,14 @@ function LineShape({
         ref={shapeRef}
         x={minX}
         y={minY}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
         <Line
           points={points}
           stroke={selected ? '#4f46e5' : strokeColor ?? '#000'}
           strokeWidth={selected ? 3 : strokeWidth ?? 2}
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -689,6 +700,7 @@ function TextShape({
   const shapeRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
   const { objectId, position, dimensions, content, textStyle } = obj
+  const fontSize = textStyle?.fontSize ?? 16
 
   useEffect(() => {
     if (selected && onObjectResizeEnd && trRef.current && shapeRef.current) {
@@ -727,7 +739,7 @@ function TextShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
-        {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+        {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onDblClick={canEdit ? () => onTextDoubleClick(objectId) : undefined}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -735,22 +747,24 @@ function TextShape({
           width={dimensions.width}
           height={dimensions.height}
           fill="transparent"
-          stroke="transparent"
-          strokeWidth={0}
+          stroke={selected ? '#4f46e5' : 'transparent'}
+          strokeWidth={selected ? 3 : 1}
+          perfectDrawEnabled={false}
         />
         <Text
           x={4}
           y={4}
           width={dimensions.width - 8}
           height={dimensions.height - 8}
-          text={content || 'Text'}
-          fontSize={textStyle.fontSize}
-          fontFamily={textStyle.fontFamily}
-          fill={textStyle.fontColor}
-          align={textStyle.textAlign}
+          text={content || ''}
+          fontSize={fontSize}
+          fontFamily={textStyle?.fontFamily ?? 'Arial'}
+          fill={content ? (textStyle?.fontColor ?? '#1a1a1a') : '#9ca3af'}
+          align={textStyle?.textAlign ?? 'left'}
           verticalAlign="top"
           padding={4}
           listening={false}
+          perfectDrawEnabled={false}
         />
       </Group>
       {selected && onObjectResizeEnd && (
@@ -788,12 +802,13 @@ function EmojiShape({
     <Group
       x={position.x}
       y={position.y}
-      {...shapeHandlers(objectId, viewport, canEdit, onObjectDragEnd, onObjectClick, isPointerTool)}
+      {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
     >
       <Text
         text={emoji}
         fontSize={fontSize}
         listening={false}
+        perfectDrawEnabled={false}
       />
       {selected && (
         <Rect
@@ -805,6 +820,7 @@ function EmojiShape({
           strokeWidth={2}
           fill="transparent"
           listening={false}
+          perfectDrawEnabled={false}
         />
       )}
     </Group>
