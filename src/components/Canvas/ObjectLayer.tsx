@@ -400,9 +400,9 @@ function RectangleShape({
         <Rect
           width={dimensions.width}
           height={dimensions.height}
-          fill="transparent"
-          stroke={selected ? '#4f46e5' : 'black'}
-          strokeWidth={selected ? 3 : 2}
+          fill={obj.fillColor ?? '#93c5fd'}
+          stroke={selected ? '#4f46e5' : undefined}
+          strokeWidth={selected ? 3 : 0}
           perfectDrawEnabled={false}
         />
       </Group>
@@ -485,9 +485,10 @@ function CircleShape({
           y={ry}
           radiusX={rx}
           radiusY={ry}
-          fill="transparent"
-          stroke={selected ? '#4f46e5' : 'black'}
-          strokeWidth={selected ? 3 : 2}
+          fill={obj.fillColor ?? '#93c5fd'}
+          strokeEnabled={selected}
+          stroke={selected ? '#4f46e5' : undefined}
+          strokeWidth={selected ? 3 : 0}
           perfectDrawEnabled={false}
         />
       </Group>
@@ -565,9 +566,9 @@ function TriangleShape({
       >
         <Line
           points={points}
-          fill="transparent"
-          stroke={selected ? '#4f46e5' : 'black'}
-          strokeWidth={selected ? 3 : 2}
+          fill={obj.fillColor ?? '#93c5fd'}
+          stroke={selected ? '#4f46e5' : undefined}
+          strokeWidth={selected ? 3 : 0}
           closed
           perfectDrawEnabled={false}
         />

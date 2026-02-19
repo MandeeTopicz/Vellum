@@ -1,3 +1,8 @@
+/**
+ * Objects service – Firestore CRUD for whiteboard objects (stickies, shapes, lines, text, emoji).
+ * Handles real-time subscriptions, creation, updates, deletion, and conversion between
+ * Firestore documents and BoardObject types.
+ */
 import {
   collection,
   doc,
@@ -22,10 +27,12 @@ import { DEFAULT_TEXT_STYLE } from '../types'
 
 const OBJECTS = 'objects'
 
+/** @internal Firestore collection reference for a board's objects */
 function objectsCol(boardId: string) {
   return collection(db, 'boards', boardId, OBJECTS)
 }
 
+/** @internal Firestore document reference for a single object */
 function objectRef(boardId: string, objectId: string) {
   return doc(db, 'boards', boardId, OBJECTS, objectId)
 }
@@ -52,6 +59,7 @@ export type CreateObjectInput =
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
 
+/** @internal Converts Firestore timestamp-like object to Timestamp */
 function reviveTimestamp(val: unknown): Timestamp {
   if (val && typeof val === 'object' && 'seconds' in val && typeof (val as { seconds: unknown }).seconds === 'number') {
     const v = val as { seconds: number; nanoseconds?: number }
@@ -60,6 +68,7 @@ function reviveTimestamp(val: unknown): Timestamp {
   return Timestamp.now()
 }
 
+/** @internal Converts a Firestore document to a BoardObject */
 function docToObject(_boardId: string, docId: string, data: Record<string, unknown>): BoardObject {
   const type = data.type as BoardObject['type']
   const base = {
@@ -135,6 +144,15 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
   }
 }
 
+/**
+ * Subscribes to real-time updates for all objects on a board.
+ * @param boardId - The board ID
+ * @param callback - Invoked with the full objects map on every change
+ * @returns Unsubscribe function
+ * @example
+ * const unsub = subscribeToObjects('board-123', (objects) => setObjects(objects))
+ * return () => unsub()
+ */
 export function subscribeToObjects(boardId: string, callback: (objects: ObjectsMap) => void): Unsubscribe {
   return onSnapshot(
     objectsCol(boardId),
@@ -152,6 +170,14 @@ export function subscribeToObjects(boardId: string, callback: (objects: ObjectsM
   )
 }
 
+/**
+ * Creates a new object on the whiteboard.
+ * @param boardId - The board ID
+ * @param input - Object type and properties (position, dimensions, content, etc.)
+ * @returns Promise resolving to the new object's ID
+ * @example
+ * const id = await createObject('board-123', { type: 'sticky', position: { x: 100, y: 200 }, dimensions: { width: 200, height: 160 } })
+ */
 export async function createObject(boardId: string, input: CreateObjectInput): Promise<string> {
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')
@@ -179,6 +205,13 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
   return ref.id
 }
 
+/**
+ * Updates an existing object with partial changes.
+ * @param boardId - The board ID
+ * @param objectId - The object ID
+ * @param updates - Partial updates (position, dimensions, content, fillColor, etc.)
+ * @returns Promise that resolves when the update is written
+ */
 export async function updateObject(boardId: string, objectId: string, updates: ObjectUpdates): Promise<void> {
   await updateDoc(objectRef(boardId, objectId), {
     ...updates,
@@ -186,11 +219,21 @@ export async function updateObject(boardId: string, objectId: string, updates: O
   })
 }
 
+/**
+ * Permanently deletes an object from the board.
+ * @param boardId - The board ID
+ * @param objectId - The object ID
+ * @returns Promise that resolves when the deletion is complete
+ */
 export async function deleteObject(boardId: string, objectId: string): Promise<void> {
   await deleteDoc(objectRef(boardId, objectId))
 }
 
-/** Convert BoardObject to Firestore doc shape (for restore/undo) */
+/**
+ * Converts a BoardObject to a Firestore-compatible document shape (for restore/undo).
+ * @param obj - The board object to serialize
+ * @returns Plain object suitable for Firestore setDoc
+ */
 export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> {
   const base = {
     type: obj.type,
@@ -216,7 +259,13 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
   }
 }
 
-/** Restore a deleted object (for undo) */
+/**
+ * Restores a previously deleted object (used for undo).
+ * @param boardId - The board ID
+ * @param objectId - The object ID to restore
+ * @param docData - The original document data (e.g. from objectToFirestoreDoc before delete)
+ * @returns Promise that resolves when the restore is complete
+ */
 export async function restoreObject(
   boardId: string,
   objectId: string,

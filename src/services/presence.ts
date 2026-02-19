@@ -1,3 +1,7 @@
+/**
+ * Presence service – Firebase Realtime Database for user presence and cursor positions.
+ * Manages who is viewing a board and real-time cursor coordinates for collaborative editing.
+ */
 import {
   ref,
   set,
@@ -37,6 +41,7 @@ const CURSOR_COLORS = [
   '#ec4899',
 ]
 
+/** @internal Derives a consistent color from a string (e.g. userId) */
 function hashToColor(str: string): string {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h << 5) - h + str.charCodeAt(i)
@@ -44,6 +49,12 @@ function hashToColor(str: string): string {
   return CURSOR_COLORS[idx]
 }
 
+/**
+ * Sets the current user's presence on a board and configures disconnect cleanup.
+ * Call when entering a board page.
+ * @param boardId - The board ID
+ * @returns Promise that resolves when presence is written (no-op if not authenticated)
+ */
 export async function setUserPresence(boardId: string): Promise<void> {
   const user = auth.currentUser
   if (!user) return
@@ -68,6 +79,12 @@ let lastCursorUpdate = 0
 let pendingCursor: { x: number; y: number } | null = null
 let cursorFlushTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * Updates the current user's cursor position on the board (throttled for performance).
+ * @param boardId - The board ID
+ * @param x - X coordinate in canvas space
+ * @param y - Y coordinate in canvas space
+ */
 export function updateCursor(boardId: string, x: number, y: number): void {
   const user = auth.currentUser
   if (!user) return
@@ -109,6 +126,12 @@ export function updateCursor(boardId: string, x: number, y: number): void {
   set(cursorRef, payload)
 }
 
+/**
+ * Subscribes to real-time presence updates (who is viewing the board).
+ * @param boardId - The board ID
+ * @param callback - Invoked with the list of PresenceUser on each change
+ * @returns Unsubscribe function
+ */
 export function subscribeToPresence(
   boardId: string,
   callback: (users: PresenceUser[]) => void
@@ -135,6 +158,12 @@ export function subscribeToPresence(
   })
 }
 
+/**
+ * Subscribes to real-time cursor positions for all users on the board.
+ * @param boardId - The board ID
+ * @param callback - Invoked with the list of CursorPosition on each change
+ * @returns Unsubscribe function
+ */
 export function subscribeToCursors(
   boardId: string,
   callback: (cursors: CursorPosition[]) => void

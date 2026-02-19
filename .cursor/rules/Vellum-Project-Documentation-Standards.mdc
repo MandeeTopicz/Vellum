@@ -1,0 +1,41 @@
+---
+alwaysApply: true
+---
+
+## Code Documentation Rules
+
+### Every Function Must Have:
+- JSDoc comment explaining purpose
+- @param tags for all parameters with types
+- @returns tag with return type
+- @example if complex
+
+### Every Component Must Have:
+- Comment at top explaining purpose
+- Props interface with descriptions
+- Inline comments for complex logic
+
+### When Writing Code:
+1. Add JSDoc to every function
+2. Add inline comments for complex logic
+3. Update README.md when adding features
+4. Use descriptive variable names
+5. Add @example tags for non-obvious functions
+
+### Git Commits:
+Use conventional commit format:
+- feat: new feature
+- fix: bug fix
+- docs: documentation
+- refactor: code improvement
+
+## Example Documentation:
+
+/**
+ * Creates a new object on the whiteboard
+ * @param boardId - The board ID
+ * @param objectData - Object properties
+ * @returns Promise with created object ID
+ * @example
+ * await createObject('board-123', { type: 'sticky', position: { x: 100, y: 200 } });
+ */

@@ -1,3 +1,8 @@
+/**
+ * Board service – Firestore CRUD for boards and membership.
+ * Handles board creation, fetching, updates, deletion, member management,
+ * and real-time subscriptions for owned and shared boards.
+ */
 import {
   collection,
   collectionGroup,
@@ -38,6 +43,13 @@ function memberRef(boardId: string, userId: string): DocumentReference {
   return doc(db, BOARDS, boardId, MEMBERS, userId)
 }
 
+/**
+ * Creates a new board and adds the current user as owner with edit role.
+ * @param name - Board display name (defaults to "Untitled Board" if empty)
+ * @returns Promise resolving to the new board ID
+ * @example
+ * const boardId = await createBoard('My Whiteboard')
+ */
 export async function createBoard(name: string): Promise<string> {
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')
@@ -66,6 +78,11 @@ export async function createBoard(name: string): Promise<string> {
   return ref.id
 }
 
+/**
+ * Fetches a single board by ID.
+ * @param boardId - The board ID
+ * @returns Promise resolving to the board or null if not found
+ */
 export async function getBoard(boardId: string): Promise<Board | null> {
   const snap = await getDoc(boardRef(boardId))
   if (!snap.exists()) return null
@@ -80,6 +97,12 @@ export async function getBoard(boardId: string): Promise<Board | null> {
   }
 }
 
+/**
+ * Updates board metadata (name, public access level).
+ * @param boardId - The board ID
+ * @param updates - Partial updates for name and/or publicAccess
+ * @returns Promise that resolves when the update is written
+ */
 export async function updateBoard(
   boardId: string,
   updates: Partial<Pick<BoardDoc, 'name' | 'publicAccess'>>
@@ -90,6 +113,12 @@ export async function updateBoard(
   })
 }
 
+/**
+ * Deletes a board. Only the owner can delete.
+ * @param boardId - The board ID
+ * @returns Promise that resolves when the board is deleted
+ * @throws Error if not authenticated or not the board owner
+ */
 export async function deleteBoard(boardId: string): Promise<void> {
   const user = auth.currentUser
   if (!user) throw new Error('Not authenticated')
@@ -100,6 +129,10 @@ export async function deleteBoard(boardId: string): Promise<void> {
   await deleteDoc(boardRef(boardId))
 }
 
+/**
+ * Fetches all boards owned by the current user, sorted by updatedAt descending.
+ * @returns Promise resolving to an array of boards (empty if not authenticated)
+ */
 export async function getBoardsForUser(): Promise<Board[]> {
   const user = auth.currentUser
   console.log('[board] getBoardsForUser: current user', user ? { uid: user.uid, email: user.email } : null)
@@ -137,6 +170,7 @@ export async function getBoardsForUser(): Promise<Board[]> {
 
 export type BoardsByCategory = { owned: Board[]; shared: Board[] }
 
+/** @internal Sorts boards by updatedAt descending */
 function sortBoards(boards: Board[]): Board[] {
   return [...boards].sort((a, b) => {
     const aMs = a.updatedAt?.toMillis?.() ?? 0
@@ -145,6 +179,13 @@ function sortBoards(boards: Board[]): Board[] {
   })
 }
 
+/**
+ * Subscribes to real-time updates of owned and shared boards for the current user.
+ * @param callback - Invoked with { owned, shared } boards on every change
+ * @returns Unsubscribe function
+ * @example
+ * const unsub = subscribeToBoardsForUser(({ owned, shared }) => { setOwned(owned); setShared(shared) })
+ */
 export function subscribeToBoardsForUser(callback: (data: BoardsByCategory) => void): Unsubscribe {
   const user = auth.currentUser
   if (!user) {
@@ -219,6 +260,11 @@ export function subscribeToBoardsForUser(callback: (data: BoardsByCategory) => v
   }
 }
 
+/**
+ * Fetches all members of a board.
+ * @param boardId - The board ID
+ * @returns Promise resolving to an array of board members
+ */
 export async function getBoardMembers(boardId: string): Promise<BoardMember[]> {
   const snap = await getDocs(membersCol(boardId))
   return snap.docs.map((d) => {
@@ -230,6 +276,15 @@ export async function getBoardMembers(boardId: string): Promise<BoardMember[]> {
   })
 }
 
+/**
+ * Adds or updates a board member (used for invites and self-join).
+ * @param boardId - The board ID
+ * @param userId - The user ID to add
+ * @param email - User email
+ * @param displayName - User display name or null
+ * @param role - Member role ('view' or 'edit')
+ * @returns Promise that resolves when the member is added
+ */
 export async function addBoardMember(
   boardId: string,
   userId: string,
@@ -252,6 +307,13 @@ export async function addBoardMember(
   })
 }
 
+/**
+ * Updates a board member's role.
+ * @param boardId - The board ID
+ * @param userId - The user ID
+ * @param role - New role ('view' or 'edit')
+ * @returns Promise that resolves when the update is written
+ */
 export async function setMemberRole(
   boardId: string,
   userId: string,
@@ -261,6 +323,12 @@ export async function setMemberRole(
   await updateDoc(boardRef(boardId), { updatedAt: serverTimestamp() })
 }
 
+/**
+ * Removes a member from a board.
+ * @param boardId - The board ID
+ * @param userId - The user ID to remove
+ * @returns Promise that resolves when the member is removed
+ */
 export async function removeBoardMember(boardId: string, userId: string): Promise<void> {
   await updateDoc(boardRef(boardId), { updatedAt: serverTimestamp() })
   const ref = memberRef(boardId, userId)
@@ -268,6 +336,12 @@ export async function removeBoardMember(boardId: string, userId: string): Promis
   await deleteDoc(ref)
 }
 
+/**
+ * Gets the current user's role on a board (owner, edit, view, or null if no access).
+ * Considers membership and public access level.
+ * @param boardId - The board ID
+ * @returns Promise resolving to 'owner' | 'edit' | 'view' | null
+ */
 export async function getCurrentUserRole(boardId: string): Promise<BoardMemberRole | 'owner' | null> {
   const user = auth.currentUser
   if (!user) return null
@@ -287,6 +361,11 @@ export async function getCurrentUserRole(boardId: string): Promise<BoardMemberRo
 
 export type { PublicAccessLevel }
 
+/**
+ * Checks whether the current user can edit the board (owner or edit role).
+ * @param boardId - The board ID
+ * @returns Promise resolving to true if the user can edit
+ */
 export async function canCurrentUserEdit(boardId: string): Promise<boolean> {
   const role = await getCurrentUserRole(boardId)
   return role === 'owner' || role === 'edit'
