@@ -110,6 +110,11 @@
   background: #f3f4f6;
 }
 
+.toolbar-dropdown-item.active {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
 .toolbar-dropdown-item:disabled {
   opacity: 0.6;
   cursor: not-allowed;

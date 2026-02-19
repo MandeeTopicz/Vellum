@@ -11,10 +11,33 @@ import { DEFAULT_TEXT_STYLE } from '../types'
 import type { BoardObject } from '../types'
 
 const functions = getFunctions(firebaseApp)
+type ConversationMessage = { role: 'user' | 'assistant'; content: string }
 const processAICommandFn = httpsCallable<
-  { boardId: string; userPrompt: string; objects: unknown[]; viewportCenter?: { x: number; y: number } },
-  { success: boolean; toolCalls: Array<{ function: { name: string; arguments: string } }>; content: string | null }
+  {
+    boardId: string
+    userPrompt: string
+    objects: unknown[]
+    viewportCenter?: { x: number; y: number }
+    conversationHistory?: ConversationMessage[]
+  },
+  {
+    success: boolean
+    toolCalls: Array<{ function: { name: string; arguments: string } }>
+    content: string | null
+    updatedHistory?: ConversationMessage[]
+  }
 >(functions, 'processAICommand')
+
+const conversationHistoryByBoard = new Map<string, ConversationMessage[]>()
+
+/** Clear stored conversation history for a board (or all boards if boardId omitted). Call when user clicks Clear. */
+export function clearConversation(boardId?: string) {
+  if (boardId) {
+    conversationHistoryByBoard.delete(boardId)
+  } else {
+    conversationHistoryByBoard.clear()
+  }
+}
 
 const STICKY_COLORS: Record<string, string> = {
   yellow: '#fef08a',
@@ -45,12 +68,21 @@ function resolveColor(color: string | undefined, fallback: string): string {
   return NAMED_COLORS[color.toLowerCase()] ?? fallback
 }
 
-/** @internal Minimal object shape sent to Cloud Function for AI context */
-function toContextObject(obj: BoardObject): { objectId: string; type: string; content?: string; position?: { x: number; y: number } } {
-  const base = { objectId: obj.objectId, type: obj.type }
-  if ('content' in obj && typeof obj.content === 'string') (base as { content?: string }).content = obj.content
-  if ('position' in obj) (base as { position?: { x: number; y: number } }).position = obj.position
-  if ('start' in obj) (base as { position?: { x: number; y: number } }).position = (obj as { start: { x: number; y: number } }).start
+/** @internal Minimal object shape sent to Cloud Function for AI context (for analysis and tool use) */
+function toContextObject(obj: BoardObject): {
+  objectId: string
+  type: string
+  content?: string
+  position?: { x: number; y: number }
+  fillColor?: string
+  dimensions?: { width: number; height: number }
+} {
+  const base: { objectId: string; type: string; content?: string; position?: { x: number; y: number }; fillColor?: string; dimensions?: { width: number; height: number } } = { objectId: obj.objectId, type: obj.type }
+  if ('content' in obj && typeof obj.content === 'string') base.content = obj.content
+  if ('position' in obj) base.position = obj.position
+  if ('start' in obj) base.position = (obj as { start: { x: number; y: number } }).start
+  if ('fillColor' in obj && typeof (obj as { fillColor?: string }).fillColor === 'string') base.fillColor = (obj as { fillColor: string }).fillColor
+  if ('dimensions' in obj) base.dimensions = (obj as { dimensions: { width: number; height: number } }).dimensions
   return base
 }
 
@@ -132,11 +164,13 @@ export async function processAICommand(
   const objectsMap = new Map(objectsList.map((o) => [o.objectId, o]))
 
   try {
+    const history = conversationHistoryByBoard.get(boardId) ?? []
     const result = await processAICommandFn({
       boardId,
       userPrompt,
       objects: objectsList.map(toContextObject),
       viewportCenter,
+      conversationHistory: history,
     })
     const data = result.data
 
@@ -145,6 +179,10 @@ export async function processAICommand(
 
     if (!data || !data.success) {
       return { success: false, message: 'AI request failed', actions }
+    }
+
+    if (Array.isArray(data.updatedHistory)) {
+      conversationHistoryByBoard.set(boardId, data.updatedHistory)
     }
 
     if (data.toolCalls && data.toolCalls.length > 0) {
@@ -381,7 +419,31 @@ export async function processAICommand(
           actions.push(`Created flowchart with ${steps.length} steps`)
 
         } else if (fn.name === 'createOrgChart') {
-          const structure = args.structure as { name?: string; children?: unknown[] } | null
+          let structure = args.structure as { name?: string; title?: string; children?: unknown[]; departments?: unknown[] } | string | null | undefined
+          if (typeof structure === 'string') {
+            try {
+              structure = JSON.parse(structure) as { name?: string; title?: string; children?: unknown[] }
+            } catch {
+              structure = null
+            }
+          }
+          if (!structure || typeof structure !== 'object') {
+            const ceo = args.ceo ?? args.root ?? args.ceoName
+            const deps = args.departments ?? args.children
+            if ((ceo != null || deps != null) && Array.isArray(deps)) {
+              structure = {
+                name: typeof ceo === 'string' ? ceo : 'CEO',
+                children: deps.map((d: unknown) => (typeof d === 'string' ? { name: d } : d)),
+              }
+            }
+          }
+          if (structure && typeof structure === 'object' && !Array.isArray(structure)) {
+            const hasChildren = Array.isArray(structure.children) && structure.children.length > 0
+            const hasDepts = Array.isArray(structure.departments) && structure.departments.length > 0
+            if (!hasChildren && !hasDepts && (structure.name || structure.title)) {
+              structure = { ...structure, children: [{ name: 'Department 1' }, { name: 'Department 2' }, { name: 'Department 3' }] }
+            }
+          }
           const startX = typeof args.startX === 'number' ? args.startX : 500
           const startY = typeof args.startY === 'number' ? args.startY : 500
           const boxW = 140
@@ -389,7 +451,7 @@ export async function processAICommand(
           const gapX = 40
           const gapY = 80
           if (structure && typeof structure === 'object') {
-            const rootName = (structure.name ?? 'Root') as string
+            const rootName = (structure.name ?? structure.title ?? 'CEO') as string
             const rootInput: CreateObjectInput = {
               type: 'sticky',
               position: { x: startX, y: startY },
@@ -399,11 +461,18 @@ export async function processAICommand(
             }
             const rootId = await createObject(boardId, rootInput)
             createdItems.push({ objectId: rootId, createInput: rootInput })
-            const children = Array.isArray(structure.children) ? structure.children : []
-            let childX = startX - ((children.length - 1) * (boxW + gapX)) / 2
+            let children = Array.isArray(structure.children)
+              ? structure.children
+              : Array.isArray(structure.departments)
+                ? structure.departments
+                : []
+            children = children.map((ch: unknown) =>
+              typeof ch === 'string' ? { name: ch } : ch
+            )
+            let childX = startX - (Math.max(0, children.length - 1) * (boxW + gapX)) / 2
             for (const ch of children) {
-              const c = ch as { name?: string }
-              const childName = (c?.name ?? 'Child') as string
+              const c = ch as { name?: string; title?: string }
+              const childName = (c?.name ?? c?.title ?? 'Department') as string
               const childInput: CreateObjectInput = {
                 type: 'sticky',
                 position: { x: childX, y: startY + boxH + gapY },
@@ -425,6 +494,43 @@ export async function processAICommand(
               childX += boxW + gapX
             }
             actions.push(`Created org chart with ${1 + children.length} nodes`)
+          } else {
+            console.warn('[AI] createOrgChart: invalid structure, using default. Raw args:', JSON.stringify(args))
+            structure = { name: 'CEO', children: [{ name: 'Engineering' }, { name: 'Sales' }, { name: 'Marketing' }] }
+            const rootInput: CreateObjectInput = {
+              type: 'sticky',
+              position: { x: startX, y: startY },
+              dimensions: { width: boxW, height: boxH },
+              content: 'CEO',
+              fillColor: '#dbeafe',
+            }
+            const rootId = await createObject(boardId, rootInput)
+            createdItems.push({ objectId: rootId, createInput: rootInput })
+            const children = structure.children as { name?: string }[]
+            let childX = startX - (Math.max(0, children.length - 1) * (boxW + gapX)) / 2
+            for (const ch of children) {
+              const childName = (ch?.name ?? 'Department') as string
+              const childInput: CreateObjectInput = {
+                type: 'sticky',
+                position: { x: childX, y: startY + boxH + gapY },
+                dimensions: { width: boxW, height: boxH },
+                content: childName,
+                fillColor: '#e0e7ff',
+              }
+              const childId = await createObject(boardId, childInput)
+              createdItems.push({ objectId: childId, createInput: childInput })
+              const lineInput: CreateObjectInput = {
+                type: 'line',
+                start: { x: startX + boxW / 2, y: startY + boxH },
+                end: { x: childX + boxW / 2, y: startY + boxH + gapY },
+                strokeColor: '#94a3b8',
+                strokeWidth: 2,
+              }
+              const lineId = await createObject(boardId, lineInput)
+              createdItems.push({ objectId: lineId, createInput: lineInput })
+              childX += boxW + gapX
+            }
+            actions.push(`Created org chart with ${1 + children.length} nodes (default structure)`)
           }
 
         } else if (fn.name === 'createMindMap') {
@@ -432,35 +538,43 @@ export async function processAICommand(
           const branches = Array.isArray(args.branches) ? (args.branches as string[]) : []
           const centerX = typeof args.centerX === 'number' ? args.centerX : 500
           const centerY = typeof args.centerY === 'number' ? args.centerY : 500
+          const centerW = 160
+          const centerH = 80
           const centerInput: CreateObjectInput = {
             type: 'sticky',
-            position: { x: centerX - 80, y: centerY - 40 },
-            dimensions: { width: 160, height: 80 },
+            position: { x: centerX - centerW / 2, y: centerY - centerH / 2 },
+            dimensions: { width: centerW, height: centerH },
             content: centerTopic,
             fillColor: '#fef08a',
           }
           const centerId = await createObject(boardId, centerInput)
           createdItems.push({ objectId: centerId, createInput: centerInput })
-          const radius = 180
+          const centerRadius = Math.min(centerW, centerH) / 2
+          const branchRadius = 180
           for (let i = 0; i < branches.length; i++) {
             const angle = (i / Math.max(1, branches.length)) * Math.PI * 1.5 - Math.PI / 4
-            const bx = centerX + radius * Math.cos(angle) - 60
-            const by = centerY + radius * Math.sin(angle) - 30
+            const branchCenterX = centerX + branchRadius * Math.cos(angle)
+            const branchCenterY = centerY + branchRadius * Math.sin(angle)
+            const branchW = 120
+            const branchH = 60
+            const bx = branchCenterX - branchW / 2
+            const by = branchCenterY - branchH / 2
             const branchInput: CreateObjectInput = {
               type: 'sticky',
               position: { x: bx, y: by },
-              dimensions: { width: 120, height: 60 },
+              dimensions: { width: branchW, height: branchH },
               content: branches[i],
               fillColor: '#dcfce7',
             }
             const branchId = await createObject(boardId, branchInput)
             createdItems.push({ objectId: branchId, createInput: branchInput })
-            const midX = (centerX + bx + 60) / 2
-            const midY = (centerY + by + 30) / 2
+            const lineAngle = Math.atan2(branchCenterY - centerY, branchCenterX - centerX)
+            const lineStartX = centerX + centerRadius * Math.cos(lineAngle)
+            const lineStartY = centerY + centerRadius * Math.sin(lineAngle)
             const lineInput: CreateObjectInput = {
               type: 'line',
-              start: { x: centerX, y: centerY },
-              end: { x: midX, y: midY },
+              start: { x: lineStartX, y: lineStartY },
+              end: { x: branchCenterX, y: branchCenterY },
               strokeColor: '#94a3b8',
               strokeWidth: 2,
             }
@@ -512,6 +626,8 @@ export async function processAICommand(
           const startX = typeof args.startX === 'number' ? args.startX : 500
           const startY = typeof args.startY === 'number' ? args.startY : 500
           const gap = 140
+          const stickyH = 60
+          const lineYOffset = 20
           for (let i = 0; i < events.length; i++) {
             const e = events[i] as { date?: string; label?: string }
             const date = (e?.date ?? '') as string
@@ -520,7 +636,7 @@ export async function processAICommand(
             const createInput: CreateObjectInput = {
               type: 'sticky',
               position: { x: startX + i * gap, y: startY },
-              dimensions: { width: 120, height: 60 },
+              dimensions: { width: 120, height: stickyH },
               content: text,
               fillColor: '#fef08a',
             }
@@ -528,10 +644,11 @@ export async function processAICommand(
             createdItems.push({ objectId, createInput })
           }
           if (events.length > 1) {
+            const lineY = startY + stickyH + lineYOffset
             const lineInput: CreateObjectInput = {
               type: 'line',
-              start: { x: startX + 60, y: startY + 30 },
-              end: { x: startX + (events.length - 1) * gap + 60, y: startY + 30 },
+              start: { x: startX + 60, y: lineY },
+              end: { x: startX + (events.length - 1) * gap + 60, y: lineY },
               strokeColor: '#94a3b8',
               strokeWidth: 2,
             }
@@ -595,14 +712,24 @@ export async function processAICommand(
           const suggestion = (args.suggestion ?? '') as string
           if (suggestion) actions.push(`Suggestion: ${suggestion}`)
 
+        } else if (fn.name === 'analyzeBoardLayout') {
+          const analysis = (args.analysis ?? '') as string
+          const suggestions = Array.isArray(args.suggestions) ? (args.suggestions as string[]) : []
+          console.log('[AI Analysis]:', analysis)
+          console.log('[AI Suggestions]:', suggestions)
+          if (analysis) actions.push(analysis)
+          suggestions.forEach((s) => actions.push(`• ${s}`))
+
         } else {
           console.warn('[AI] Unknown tool call name:', fn.name, '— skipping')
         }
       }
 
+      const conversationalMessage = (data.content ?? '').trim()
+      const fallbackMessage = actions.length > 0 ? actions.join('. ') : 'Done'
       return {
         success: true,
-        message: actions.length > 0 ? actions.join('. ') : 'Done',
+        message: conversationalMessage || fallbackMessage,
         actions,
         createdItems,
       }
@@ -611,7 +738,7 @@ export async function processAICommand(
     console.log('[AI] No tool calls returned. Text response:', data.content)
     return {
       success: true,
-      message: data.content ?? 'Done',
+      message: (data.content ?? '').trim() || 'Done',
       actions,
     }
   } catch (err) {

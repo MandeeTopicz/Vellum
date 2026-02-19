@@ -22,10 +22,11 @@ interface AIChatPanelProps {
   isOpen: boolean
   onClose: () => void
   onSendMessage: (prompt: string) => Promise<{ success: boolean; message: string }>
+  onClearConversation?: () => void
   canEdit: boolean
 }
 
-export default function AIChatPanel({ isOpen, onClose, onSendMessage, canEdit }: AIChatPanelProps) {
+export default function AIChatPanel({ isOpen, onClose, onSendMessage, onClearConversation, canEdit }: AIChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE])
   const [inputValue, setInputValue] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -102,6 +103,7 @@ export default function AIChatPanel({ isOpen, onClose, onSendMessage, canEdit }:
 
   const handleClear = () => {
     setMessages([WELCOME_MESSAGE])
+    onClearConversation?.()
   }
 
   const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

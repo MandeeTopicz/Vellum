@@ -22,6 +22,8 @@ export type WhiteboardTool =
   | 'line'
   | 'text'
   | 'pen'
+  | 'highlighter'
+  | 'eraser'
   | 'emoji'
   | 'comment'
 
@@ -193,11 +195,10 @@ export default function WhiteboardToolbar({
       <div className="toolbar-dropdown" ref={penRef}>
         <button
           type="button"
-          className={`toolbar-icon-btn ${activeTool === 'pen' ? 'active' : ''}`}
+          className={`toolbar-icon-btn ${['pen', 'highlighter', 'eraser'].includes(activeTool) ? 'active' : ''}`}
           onClick={() => {
             closeAllDropdowns()
             setPenOpen((v) => !v)
-            if (!penOpen) onToolSelect('pen')
           }}
           disabled={!canEdit}
           title="Pen"
@@ -206,17 +207,35 @@ export default function WhiteboardToolbar({
         </button>
         {penOpen && (
           <div className="toolbar-dropdown-panel">
-            <button type="button" className="toolbar-dropdown-item" disabled>
-              Pen (Coming Soon)
+            <button
+              type="button"
+              className={`toolbar-dropdown-item ${activeTool === 'pen' ? 'active' : ''}`}
+              onClick={() => {
+                onToolSelect('pen')
+                setPenOpen(false)
+              }}
+            >
+              Pen
             </button>
-            <button type="button" className="toolbar-dropdown-item" disabled>
-              Highlighter (Coming Soon)
+            <button
+              type="button"
+              className={`toolbar-dropdown-item ${activeTool === 'highlighter' ? 'active' : ''}`}
+              onClick={() => {
+                onToolSelect('highlighter')
+                setPenOpen(false)
+              }}
+            >
+              Highlighter
             </button>
-            <button type="button" className="toolbar-dropdown-item" disabled>
-              Eraser (Coming Soon)
-            </button>
-            <button type="button" className="toolbar-dropdown-item" disabled>
-              Lasso (Coming Soon)
+            <button
+              type="button"
+              className={`toolbar-dropdown-item ${activeTool === 'eraser' ? 'active' : ''}`}
+              onClick={() => {
+                onToolSelect('eraser')
+                setPenOpen(false)
+              }}
+            >
+              Eraser
             </button>
           </div>
         )}

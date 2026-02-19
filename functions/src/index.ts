@@ -19,11 +19,19 @@ export const processAICommand = onCall(
       throw new HttpsError('unauthenticated', 'Must be logged in')
     }
 
-    const { boardId, userPrompt, viewportCenter, objects: boardObjects } = request.data as {
+    const { boardId, userPrompt, viewportCenter, objects: boardObjects, conversationHistory } = request.data as {
       boardId: string
       userPrompt: string
-      objects?: Array<{ objectId: string; type: string; content?: string; position?: { x: number; y: number } }>
+      objects?: Array<{
+        objectId: string
+        type: string
+        content?: string
+        position?: { x: number; y: number }
+        fillColor?: string
+        dimensions?: { width: number; height: number }
+      }>
       viewportCenter?: { x: number; y: number }
+      conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
     }
 
     if (!boardId || typeof userPrompt !== 'string') {
@@ -33,10 +41,35 @@ export const processAICommand = onCall(
     const defaultX = Math.round(viewportCenter?.x ?? 1000)
     const defaultY = Math.round(viewportCenter?.y ?? 1000)
 
-    const objectContext =
-      Array.isArray(boardObjects) && boardObjects.length > 0
-        ? `\n\nCurrent objects on the board (use these objectIds for changeColor, moveObjects, arrangeInGrid, groupObjects, duplicateObjects, deleteObjects): ${boardObjects.map((o) => `${o.objectId} (${o.type}${o.content ? `: "${String(o.content).slice(0, 30)}"` : ''})`).join(', ')}`
+    const objects = Array.isArray(boardObjects) ? boardObjects : []
+    const objectListStr =
+      objects.length > 0
+        ? objects
+            .map(
+              (o) =>
+                `${o.objectId} ${o.type}${o.position ? ` at (${Math.round(o.position.x)},${Math.round(o.position.y)})` : ''}${o.fillColor ? ` color=${o.fillColor}` : ''}${o.content ? ` "${String(o.content).slice(0, 50)}"` : ''}`
+            )
+            .join('; ')
         : ''
+    const objectContext =
+      objects.length > 0
+        ? `\n\nCurrent board state (${objects.length} objects). When user agrees to organize or improve, call arrangeInGrid, groupObjects, or moveObjects with these objectIds. All objectIds must come from this list.\nObjects: ${objectListStr}`
+        : ''
+
+    const systemPrompt =
+      `You are an expert design assistant for collaborative whiteboards. The canvas is 2000x2000px with (0,0) top-left and (2000,2000) bottom-right. Default position: x=${defaultX}, y=${defaultY}. ` +
+      'You can have natural conversations, ask clarifying questions, suggest alternatives, and remember what the user said. ' +
+      'ACKNOWLEDGMENTS: When the user gives acknowledgments (e.g. "Great, thanks!", "Perfect!", "Awesome!", "Got it", "Thanks", "Nice", "Cool"), respond briefly and naturally without calling any tools. Do NOT repeat the last action or call arrangeInGrid, groupObjects, etc. Just say something like "You\'re welcome!" or "Glad I could help!" and stop. ' +
+      'When the user asks "how does my board look?", "analyze this layout", or "what improvements do you suggest?", use analyzeBoardLayout. Look for: scattered objects that could be grouped; similar-colored items; lack of structure; overlapping areas; unused space; objects that could be connected. Offer to implement improvements. ' +
+      'CRITICAL: When the user agrees to improvements (e.g. "yes", "organize them", "do it", "go ahead", "please"), you MUST call the action tools. Do NOT just describe what to do — actually execute. Use arrangeInGrid, groupObjects, moveObjects, createConnector with objectIds from the board context. ' +
+      'Available tools: createStickyNote, createShape, changeColor, moveObjects, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. Use sensible defaults for colors and positions.'
+
+    const history = Array.isArray(conversationHistory) ? conversationHistory : []
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: userPrompt + objectContext },
+    ]
 
     const openai = new OpenAI({
       apiKey: openaiApiKey.value(),
@@ -45,20 +78,7 @@ export const processAICommand = onCall(
     try {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a whiteboard assistant. The canvas is 2000x2000px with (0,0) at the top-left and (2000,2000) at the bottom-right. ' +
-              'When the user asks you to create or modify something, ALWAYS call the appropriate tool immediately. ' +
-              'NEVER ask the user for clarification or missing information. ' +
-              `If coordinates are not specified, default to x=${defaultX}, y=${defaultY} (current viewport center). ` +
-              'If color is not specified, use a sensible default (yellow for sticky notes, blue for shapes). ' +
-              'For changeColor, moveObjects, and arrangeInGrid you must use objectIds from the current board context provided in the user message. ' +
-              'Always act — never respond with plain text asking for more details.',
-          },
-          { role: 'user', content: userPrompt + objectContext },
-        ],
+        messages,
         tools: [
           {
             type: 'function',
@@ -266,13 +286,26 @@ export const processAICommand = onCall(
             type: 'function',
             function: {
               name: 'createOrgChart',
-              description: 'Create an organizational hierarchy with nested nodes',
+              description: 'Create an organizational hierarchy: CEO at top, departments below. Pass structure: { name: "CEO", children: [{ name: "Engineering" }, { name: "Sales" }, { name: "Marketing" }] }. Children can also be strings.',
               parameters: {
                 type: 'object',
                 properties: {
                   structure: {
                     type: 'object',
-                    description: 'Nested structure: { name: string, children: array }',
+                    description: 'Org structure: { name: "CEO", children: [{ name: "Dept1" }, { name: "Dept2" }] } or children as string array',
+                    properties: {
+                      name: { type: 'string', description: 'CEO/root name' },
+                      children: {
+                        type: 'array',
+                        items: {
+                          oneOf: [
+                            { type: 'object', properties: { name: { type: 'string' } } },
+                            { type: 'string' },
+                          ],
+                        },
+                      },
+                    },
+                    required: ['name', 'children'],
                   },
                   startX: { type: 'number', description: 'Top-left X position' },
                   startY: { type: 'number', description: 'Top-left Y position' },
@@ -436,16 +469,46 @@ export const processAICommand = onCall(
               },
             },
           },
+          {
+            type: 'function',
+            function: {
+              name: 'analyzeBoardLayout',
+              description: 'Analyze the current board state and provide suggestions for improvement. Use when the user asks how the board looks, to analyze layout, or for improvement suggestions.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  analysis: {
+                    type: 'string',
+                    description: 'Detailed analysis of the board layout with specific observations (positions, colors, grouping, structure) and actionable suggestions',
+                  },
+                  suggestions: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'List of actionable improvement suggestions (e.g. "Arrange yellow stickies in a column", "Group the pink stickies")',
+                  },
+                },
+                required: ['analysis', 'suggestions'],
+              },
+            },
+          },
         ],
         tool_choice: 'auto',
       })
 
       const message = response.choices[0]?.message
+      const assistantContent = message?.content ?? ''
+
+      const updatedHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        ...history,
+        { role: 'user', content: userPrompt },
+        { role: 'assistant', content: assistantContent },
+      ]
 
       return {
         success: true,
         toolCalls: message?.tool_calls ?? [],
         content: message?.content ?? null,
+        updatedHistory,
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

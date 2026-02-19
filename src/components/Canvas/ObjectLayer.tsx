@@ -8,6 +8,7 @@ import type {
   CircleObject,
   TriangleObject,
   LineObject,
+  PenObject,
   TextObject,
   EmojiObject,
 } from '../../types'
@@ -17,6 +18,16 @@ import { stageToCanvas } from '../../utils/coordinates'
 export type ObjectResizeUpdates =
   | { position: { x: number; y: number }; dimensions: { width: number; height: number } }
   | { start: { x: number; y: number }; end: { x: number; y: number } }
+
+/** In-progress pen stroke preview while drawing */
+export interface CurrentPenStroke {
+  points: [number, number][]
+  color: string
+  strokeWidth: number
+  isHighlighter: boolean
+  opacity: number
+  strokeType?: 'solid' | 'dotted' | 'double'
+}
 
 interface ObjectLayerProps {
   objects: ObjectsMap
@@ -29,6 +40,8 @@ interface ObjectLayerProps {
   onStickyDoubleClick: (objectId: string) => void
   onTextDoubleClick: (objectId: string) => void
   canEdit: boolean
+  /** Preview stroke while pen/highlighter is drawing */
+  currentPenStroke?: CurrentPenStroke | null
 }
 
 const MIN_SIZE = 20
@@ -56,6 +69,7 @@ function ObjectLayerInner({
   onStickyDoubleClick,
   onTextDoubleClick,
   canEdit,
+  currentPenStroke,
 }: ObjectLayerProps) {
   const objectList = useMemo(
     () =>
@@ -69,6 +83,9 @@ function ObjectLayerInner({
 
   return (
     <>
+      {currentPenStroke && currentPenStroke.points.length >= 2 && (
+        <PenStrokePreview stroke={currentPenStroke} />
+      )}
       {objectList.map((obj) => {
         const selected = selectedIds.has(obj.objectId)
         const resizable =
@@ -156,6 +173,16 @@ function ObjectLayerInner({
             />
           )
         }
+        if (obj.type === 'pen') {
+          return (
+            <PenShape
+              key={obj.objectId}
+              obj={obj}
+              isPointerTool={isPointerTool}
+              onObjectClick={onObjectClick}
+            />
+          )
+        }
         if (obj.type === 'text') {
           return (
             <TextShape
@@ -203,6 +230,7 @@ function objectLayerPropsEqual(prev: ObjectLayerProps, next: ObjectLayerProps): 
   if (prev.onObjectResizeEnd !== next.onObjectResizeEnd) return false
   if (prev.onStickyDoubleClick !== next.onStickyDoubleClick) return false
   if (prev.onTextDoubleClick !== next.onTextDoubleClick) return false
+  if (prev.currentPenStroke !== next.currentPenStroke) return false
   return true
 }
 
@@ -794,6 +822,102 @@ function TextShape({
         />
       )}
     </>
+  )
+}
+
+/**
+ * Pen stroke: freehand line from points array.
+ * Not draggable/resizable; only clickable for selection when pointer tool.
+ */
+/** Renders a pen stroke with optional solid/dotted/double style */
+function renderPenStroke(
+  flatPoints: number[],
+  color: string,
+  strokeWidth: number,
+  opacity: number,
+  strokeType: 'solid' | 'dotted' | 'double' | undefined
+) {
+  const baseProps = {
+    points: flatPoints,
+    stroke: color,
+    strokeWidth,
+    opacity,
+    tension: 0.5,
+    lineCap: 'round' as const,
+    lineJoin: 'round' as const,
+    listening: false,
+    perfectDrawEnabled: false,
+  }
+  if (strokeType === 'dotted') {
+    return <Line {...baseProps} dash={[5, 5]} />
+  }
+  if (strokeType === 'double') {
+    const offset = strokeWidth * 0.4
+    const points: [number, number][] = []
+    for (let i = 0; i < flatPoints.length; i += 2) {
+      points.push([flatPoints[i], flatPoints[i + 1]])
+    }
+    const offsetPoints = (delta: number): number[] => {
+      if (points.length < 2) return flatPoints
+      const result: number[] = []
+      for (let i = 0; i < points.length; i++) {
+        const prev = points[Math.max(0, i - 1)]
+        const next = points[Math.min(points.length - 1, i + 1)]
+        const dx = next[0] - prev[0]
+        const dy = next[1] - prev[1]
+        const len = Math.hypot(dx, dy) || 1
+        const nx = -dy / len
+        const ny = dx / len
+        result.push(points[i][0] + nx * delta, points[i][1] + ny * delta)
+      }
+      return result
+    }
+    const w = strokeWidth * 0.6
+    return (
+      <Group>
+        <Line {...baseProps} points={offsetPoints(-offset)} strokeWidth={w} />
+        <Line {...baseProps} points={offsetPoints(offset)} strokeWidth={w} />
+      </Group>
+    )
+  }
+  return <Line {...baseProps} />
+}
+
+function PenStrokePreview({ stroke }: { stroke: CurrentPenStroke }) {
+  const flatPoints = stroke.points.flat()
+  const strokeType = stroke.strokeType ?? 'solid'
+  return (
+    <Group listening={false}>
+      {renderPenStroke(
+        flatPoints,
+        stroke.color,
+        stroke.strokeWidth,
+        stroke.opacity,
+        strokeType
+      )}
+    </Group>
+  )
+}
+
+function PenShape({
+  obj,
+  isPointerTool,
+  onObjectClick,
+}: {
+  obj: PenObject
+  isPointerTool: boolean
+  onObjectClick: (id: string, e: { ctrlKey: boolean }) => void
+}) {
+  const { objectId, points, color, strokeWidth, opacity = 1, strokeType } = obj
+  const flatPoints = points.flat()
+  if (flatPoints.length < 4) return null
+  return (
+    <Group
+      listening={isPointerTool}
+      onClick={(e) => isPointerTool && onObjectClick(objectId, { ctrlKey: e.evt.ctrlKey })}
+    >
+      {renderPenStroke(flatPoints, color, strokeWidth, opacity, strokeType)}
+    </Group>
   )
 }
 

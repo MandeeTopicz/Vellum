@@ -36,7 +36,7 @@ export interface BoardObjectBase {
   updatedAt: Timestamp
 }
 
-export type BoardObjectType = 'sticky' | 'rectangle' | 'circle' | 'triangle' | 'line' | 'text' | 'emoji'
+export type BoardObjectType = 'sticky' | 'rectangle' | 'circle' | 'triangle' | 'line' | 'text' | 'pen' | 'emoji'
 
 /** Sticky note: resizable, editable text, fill + text styling */
 export interface StickyObject extends BoardObjectBase {
@@ -81,6 +81,20 @@ export interface LineObject extends BoardObjectBase {
   strokeWidth?: number
 }
 
+/** Stroke style for pen objects */
+export type PenStrokeType = 'solid' | 'dotted' | 'double'
+
+/** Freehand pen stroke: array of [x, y] points */
+export interface PenObject extends BoardObjectBase {
+  type: 'pen'
+  points: [number, number][]
+  color: string
+  strokeWidth: number
+  isHighlighter: boolean
+  opacity?: number
+  strokeType?: PenStrokeType
+}
+
 /** Text box: editable text */
 export interface TextObject extends BoardObjectBase {
   type: 'text'
@@ -105,6 +119,7 @@ export type BoardObject =
   | TriangleObject
   | LineObject
   | TextObject
+  | PenObject
   | EmojiObject
 
 /** Normalized client state: objectId -> object */

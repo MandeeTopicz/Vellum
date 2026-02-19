@@ -25,7 +25,7 @@ import {
 } from '../services/presence'
 import { useAuth } from '../context/AuthContext'
 import type { Board as BoardType } from '../types'
-import type { ObjectsMap, LineObject, BoardObject } from '../types'
+import type { ObjectsMap, LineObject, PenObject, BoardObject } from '../types'
 import type { BoardComment } from '../services/comments'
 import type { PresenceUser } from '../services/presence'
 import InfiniteCanvas, {
@@ -33,10 +33,11 @@ import InfiniteCanvas, {
   type BackgroundClickPayload,
   canvasToStage,
 } from '../components/Canvas/InfiniteCanvas'
-import ObjectLayer, { type ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
+import ObjectLayer, { type ObjectResizeUpdates, type CurrentPenStroke } from '../components/Canvas/ObjectLayer'
 import CursorLayer from '../components/Canvas/CursorLayer'
 import CommentLayer from '../components/Canvas/CommentLayer'
 import WhiteboardToolbar from '../components/Canvas/WhiteboardToolbar'
+import PenStylingToolbar, { type PenStyles } from '../components/Canvas/PenStylingToolbar'
 import AIChatPanel from '../components/Canvas/AIChatPanel'
 import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
 import WhiteboardNav from '../components/Canvas/WhiteboardNav'
@@ -47,10 +48,13 @@ import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
 import { getPendingInviteForBoard, acceptInvite } from '../services/invites'
-import { processAICommand } from '../services/aiAgent'
+import { processAICommand, clearConversation } from '../services/aiAgent'
 import aiIcon from '../assets/ai-icon.png'
 import type { BoardInvite } from '../types'
 import './BoardPage.css'
+
+const ERASER_CURSOR =
+  "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><circle cx=\"16\" cy=\"16\" r=\"10\" fill=\"none\" stroke=\"%23333\" stroke-width=\"2\"/></svg>') 16 16, crosshair"
 
 export default function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>()
@@ -75,6 +79,23 @@ export default function BoardPage() {
   const [commentThread, setCommentThread] = useState<BoardComment | null>(null)
   const [pendingEmoji, setPendingEmoji] = useState<string | null>(null)
   const [isChatOpen, setIsChatOpen] = useState(false)
+  const [currentPenPoints, setCurrentPenPoints] = useState<[number, number][]>([])
+  /** Ref updated synchronously during stroke so mouseup always has latest points (avoids React batching delay) */
+  const currentPenPointsRef = useRef<[number, number][]>([])
+
+  const [penToolStyles, setPenToolStyles] = useState<PenStyles>({
+    color: '#000000',
+    size: 3,
+    opacity: 100,
+    strokeType: 'solid',
+  })
+  const [highlighterToolStyles, setHighlighterToolStyles] = useState<PenStyles>({
+    color: '#eab308',
+    size: 24,
+    opacity: 35,
+    strokeType: 'solid',
+  })
+  const [eraserSize, setEraserSize] = useState(10)
   const [showGrid, setShowGrid] = useState(() => {
     try {
       const v = localStorage.getItem('vellum:showGrid')
@@ -705,6 +726,102 @@ export default function BoardPage() {
     setActiveTool(tool)
   }, [])
 
+  const penStyles: PenStyles =
+    activeTool === 'pen'
+      ? penToolStyles
+      : activeTool === 'highlighter'
+        ? highlighterToolStyles
+        : { ...penToolStyles, size: eraserSize, color: '#000000', opacity: 100, strokeType: 'solid' }
+
+  const handlePenStylesChange = useCallback(
+    (updates: Partial<PenStyles>) => {
+      if (activeTool === 'pen') {
+        setPenToolStyles((prev) => ({ ...prev, ...updates }))
+      } else if (activeTool === 'highlighter') {
+        setHighlighterToolStyles((prev) => ({ ...prev, ...updates }))
+      } else if (activeTool === 'eraser' && 'size' in updates) {
+        setEraserSize(updates.size ?? eraserSize)
+      }
+    },
+    [activeTool, eraserSize]
+  )
+
+  const penDrawingActive = (activeTool === 'pen' || activeTool === 'highlighter') && canEdit
+  const eraserActive = activeTool === 'eraser' && canEdit
+
+  const handlePenStrokeStart = useCallback(
+    (pos: { x: number; y: number }) => {
+      if (!penDrawingActive) return
+      const pts: [number, number][] = [[pos.x, pos.y]]
+      currentPenPointsRef.current = pts
+      setCurrentPenPoints(pts)
+    },
+    [penDrawingActive]
+  )
+
+  const handlePenStrokeMove = useCallback(
+    (pos: { x: number; y: number }) => {
+      if (!penDrawingActive) return
+      const next = [...currentPenPointsRef.current, [pos.x, pos.y] as [number, number]]
+      currentPenPointsRef.current = next
+      setCurrentPenPoints(next)
+    },
+    [penDrawingActive]
+  )
+
+  const handlePenStrokeEnd = useCallback(async () => {
+    const pointsToSave = [...currentPenPointsRef.current]
+    currentPenPointsRef.current = []
+    setCurrentPenPoints([])
+    if (!id || !canEdit || pointsToSave.length < 2) return
+    const isHighlighter = activeTool === 'highlighter'
+    const input = {
+      type: 'pen' as const,
+      points: pointsToSave,
+      color: penStyles.color,
+      strokeWidth: penStyles.size,
+      isHighlighter,
+      opacity: penStyles.opacity / 100,
+      strokeType: penStyles.strokeType,
+    }
+    const objectId = await createObject(id, input)
+    pushUndo({ type: 'create', objectId, createInput: input })
+  }, [id, canEdit, activeTool, penStyles, pushUndo])
+
+  const handleEraserMove = useCallback(
+    (pos: { x: number; y: number }) => {
+      if (!id || !canEdit || !eraserActive) return
+      const eraserRadius = penStyles.size
+      const penObjects = Object.values(objects).filter((obj): obj is PenObject => obj.type === 'pen')
+      for (const penObj of penObjects) {
+        for (let i = 0; i < penObj.points.length; i++) {
+          const [px, py] = penObj.points[i]
+          const dist = Math.sqrt((px - pos.x) ** 2 + (py - pos.y) ** 2)
+          if (dist < eraserRadius) {
+            pushUndo({ type: 'delete', objectId: penObj.objectId, deleted: penObj })
+            deleteObject(id, penObj.objectId)
+            return
+          }
+        }
+      }
+    },
+    [id, canEdit, eraserActive, objects, penStyles.size, pushUndo]
+  )
+
+  const currentPenStroke: CurrentPenStroke | null =
+    penDrawingActive && currentPenPoints.length >= 2
+      ? {
+          points: currentPenPoints,
+          color: penStyles.color,
+          strokeWidth: penStyles.size,
+          isHighlighter: activeTool === 'highlighter',
+          opacity: penStyles.opacity / 100,
+          strokeType: penStyles.strokeType,
+        }
+      : null
+
+  const canvasCursor = penDrawingActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
+
   const handleEmojiSelect = useCallback((emoji: string) => {
     setPendingEmoji(emoji)
   }, [])
@@ -795,6 +912,13 @@ export default function BoardPage() {
           creationToolActive={activeTool !== 'pointer'}
           editingTextOpen={editingText != null}
           cursorLayer={cursorLayerEl}
+          penDrawingActive={penDrawingActive}
+          eraserActive={eraserActive}
+          onPenStrokeStart={handlePenStrokeStart}
+          onPenStrokeMove={handlePenStrokeMove}
+          onPenStrokeEnd={handlePenStrokeEnd}
+          onEraserMove={handleEraserMove}
+          cursor={canvasCursor}
         >
           <ObjectLayer
             objects={objects}
@@ -807,6 +931,7 @@ export default function BoardPage() {
             onStickyDoubleClick={handleStickyDoubleClick}
             onTextDoubleClick={handleTextDoubleClick}
             canEdit={canEdit}
+            currentPenStroke={currentPenStroke}
           />
           <CommentLayer
             comments={comments}
@@ -826,6 +951,14 @@ export default function BoardPage() {
           onRedo={handleRedo}
           canEdit={canEdit}
         />
+
+        {(activeTool === 'pen' || activeTool === 'highlighter' || activeTool === 'eraser') && (
+          <PenStylingToolbar
+            penStyles={penStyles}
+            onPenStylesChange={handlePenStylesChange}
+            activeTool={activeTool}
+          />
+        )}
 
         <WhiteboardControls
           showGrid={showGrid}
@@ -895,6 +1028,7 @@ export default function BoardPage() {
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
           onSendMessage={handleAICommand}
+          onClearConversation={() => clearConversation(id)}
           canEdit={canEdit}
         />
 

@@ -20,6 +20,7 @@ import type {
   BoardObject,
   ObjectsMap,
   Point,
+  PenObject,
   StickyObject,
   TextObject,
 } from '../types'
@@ -56,6 +57,7 @@ export type CreateObjectInput =
   | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string }
   | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string }
   | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number }
+  | { type: 'pen'; points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
 
@@ -122,6 +124,23 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeColor: data.strokeColor as string | undefined,
         strokeWidth: data.strokeWidth as number | undefined,
       }
+    case 'pen': {
+      const flat = (data.points as number[]) ?? []
+      const points: [number, number][] = []
+      for (let i = 0; i < flat.length; i += 2) {
+        points.push([flat[i], flat[i + 1]])
+      }
+      return {
+        ...base,
+        type: 'pen',
+        points,
+        color: (data.color as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 3,
+        isHighlighter: (data.isHighlighter as boolean) ?? false,
+        opacity: (data.opacity as number) ?? 1,
+        strokeType: (data.strokeType as PenObject['strokeType']) ?? 'solid',
+      } as PenObject
+    }
     case 'text':
       return {
         ...base,
@@ -201,6 +220,9 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
+  if (input.type === 'pen') {
+    docData.points = input.points.flat()
+  }
   const ref = await addDoc(objectsCol(boardId), docData)
   return ref.id
 }
@@ -250,6 +272,16 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
       return { ...base, position: obj.position, dimensions: obj.dimensions, fillColor: obj.fillColor }
     case 'line':
       return { ...base, start: obj.start, end: obj.end, strokeColor: obj.strokeColor, strokeWidth: obj.strokeWidth }
+    case 'pen':
+      return {
+        ...base,
+        points: obj.points.flat(),
+        color: obj.color,
+        strokeWidth: obj.strokeWidth,
+        isHighlighter: obj.isHighlighter,
+        opacity: obj.opacity,
+        strokeType: obj.strokeType ?? 'solid',
+      }
     case 'text':
       return { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, textStyle: obj.textStyle }
     case 'emoji':
