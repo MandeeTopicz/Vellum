@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import aiIcon from '../../assets/ai-icon.png'
 import pointerIcon from '../../assets/pointer-icon.png'
 import formatsIcon from '../../assets/formats-icon.png'
 import stickyIcon from '../../assets/sticky-icon.png'
@@ -32,7 +31,6 @@ interface WhiteboardToolbarProps {
   onEmojiSelect?: (emoji: string) => void
   onUndo?: () => void
   onRedo?: () => void
-  onAICommand?: (prompt: string) => Promise<void>
   canEdit: boolean
 }
 
@@ -42,7 +40,6 @@ export default function WhiteboardToolbar({
   onEmojiSelect,
   onUndo,
   onRedo,
-  onAICommand,
   canEdit,
 }: WhiteboardToolbarProps) {
   const [formatsOpen, setFormatsOpen] = useState(false)
@@ -50,15 +47,11 @@ export default function WhiteboardToolbar({
   const [shapesOpen, setShapesOpen] = useState(false)
   const [penOpen, setPenOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const [aiOpen, setAiOpen] = useState(false)
-  const [aiPrompt, setAiPrompt] = useState('')
-  const [aiLoading, setAiLoading] = useState(false)
   const formatsRef = useRef<HTMLDivElement>(null)
   const templatesRef = useRef<HTMLDivElement>(null)
   const shapesRef = useRef<HTMLDivElement>(null)
   const penRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
-  const aiRef = useRef<HTMLDivElement>(null)
 
   const closeAllDropdowns = () => {
     setFormatsOpen(false)
@@ -66,7 +59,6 @@ export default function WhiteboardToolbar({
     setShapesOpen(false)
     setPenOpen(false)
     setEmojiOpen(false)
-    setAiOpen(false)
   }
 
   useEffect(() => {
@@ -76,8 +68,7 @@ export default function WhiteboardToolbar({
         templatesRef.current?.contains(e.target as Node) ||
         shapesRef.current?.contains(e.target as Node) ||
         penRef.current?.contains(e.target as Node) ||
-        emojiRef.current?.contains(e.target as Node) ||
-        aiRef.current?.contains(e.target as Node)
+        emojiRef.current?.contains(e.target as Node)
       )
         return
       closeAllDropdowns()
@@ -88,57 +79,8 @@ export default function WhiteboardToolbar({
 
   const shapeTypes = ['rectangle', 'circle', 'triangle', 'line'] as const
 
-  const handleAIRun = async () => {
-    if (!aiPrompt.trim() || !onAICommand) return
-    setAiLoading(true)
-    try {
-      await onAICommand(aiPrompt.trim())
-      setAiPrompt('')
-      setAiOpen(false)
-    } finally {
-      setAiLoading(false)
-    }
-  }
-
   return (
     <div className="whiteboard-toolbar">
-      <div className="toolbar-dropdown" ref={aiRef}>
-        <button
-          type="button"
-          className={`toolbar-icon-btn ${aiOpen ? 'active' : ''}`}
-          onClick={() => {
-            closeAllDropdowns()
-            setAiOpen((v) => !v)
-          }}
-          disabled={!canEdit}
-          title="AI Assistant"
-        >
-          <img src={aiIcon} alt="AI" width={20} height={20} />
-        </button>
-        {aiOpen && (
-          <div className="toolbar-dropdown-panel toolbar-ai-panel">
-            <p className="toolbar-ai-label">Ask AI to create sticky notes</p>
-            <input
-              type="text"
-              className="toolbar-ai-input"
-              placeholder="e.g. Create a yellow sticky that says Test at 500, 500"
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAIRun()}
-              disabled={aiLoading}
-            />
-            <button
-              type="button"
-              className="toolbar-dropdown-item"
-              onClick={handleAIRun}
-              disabled={aiLoading || !aiPrompt.trim()}
-            >
-              {aiLoading ? 'Running…' : 'Run'}
-            </button>
-          </div>
-        )}
-      </div>
-
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'pointer' ? 'active' : ''}`}

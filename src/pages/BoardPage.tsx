@@ -37,6 +37,7 @@ import ObjectLayer, { type ObjectResizeUpdates } from '../components/Canvas/Obje
 import CursorLayer from '../components/Canvas/CursorLayer'
 import CommentLayer from '../components/Canvas/CommentLayer'
 import WhiteboardToolbar from '../components/Canvas/WhiteboardToolbar'
+import AIChatPanel from '../components/Canvas/AIChatPanel'
 import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
 import WhiteboardNav from '../components/Canvas/WhiteboardNav'
 import WhiteboardControls from '../components/Canvas/WhiteboardControls'
@@ -47,6 +48,7 @@ import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
 import { getPendingInviteForBoard, acceptInvite } from '../services/invites'
 import { processAICommand } from '../services/aiAgent'
+import aiIcon from '../assets/ai-icon.png'
 import type { BoardInvite } from '../types'
 import './BoardPage.css'
 
@@ -72,6 +74,7 @@ export default function BoardPage() {
   const [commentModalPos, setCommentModalPos] = useState<{ x: number; y: number } | null>(null)
   const [commentThread, setCommentThread] = useState<BoardComment | null>(null)
   const [pendingEmoji, setPendingEmoji] = useState<string | null>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const [showGrid, setShowGrid] = useState(() => {
     try {
       const v = localStorage.getItem('vellum:showGrid')
@@ -400,28 +403,21 @@ export default function BoardPage() {
   )
 
   const handleAICommand = useCallback(
-    async (prompt: string) => {
-      if (!id || !canEdit) return
+    async (prompt: string): Promise<{ success: boolean; message: string }> => {
+      if (!id || !canEdit) return { success: false, message: 'Cannot edit' }
 
-      // Compute the current viewport center in canvas coordinates so the AI
-      // places objects where the user is actually looking.
       const vp = viewportRef.current
       const canvasCenterX = (dimensions.width / 2 - vp.x) / vp.scale
       const canvasCenterY = (dimensions.height / 2 - vp.y) / vp.scale
       const viewportCenter = { x: canvasCenterX, y: canvasCenterY }
 
       const result = await processAICommand(id, prompt, Object.values(objects), viewportCenter)
-      if (!result.success) {
-        alert(result.message)
-        return
-      }
+      if (!result.success) return { success: false, message: result.message }
+
       if (result.createdItems?.length) {
         for (const { objectId, createInput } of result.createdItems) {
           pushUndo({ type: 'create', objectId, createInput })
         }
-
-        // Pan the viewport to center on the newly created objects so they
-        // are always visible regardless of where the user was looking.
         const positions = result.createdItems
           .map((c) => ('position' in c.createInput ? c.createInput.position : null))
           .filter((p): p is { x: number; y: number } => p != null)
@@ -435,6 +431,7 @@ export default function BoardPage() {
           }))
         }
       }
+      return { success: true, message: result.message }
     },
     [id, canEdit, objects, pushUndo, dimensions]
   )
@@ -827,7 +824,6 @@ export default function BoardPage() {
           onEmojiSelect={handleEmojiSelect}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          onAICommand={handleAICommand}
           canEdit={canEdit}
         />
 
@@ -893,6 +889,24 @@ export default function BoardPage() {
               if (b) setBoard(b)
             }}
           />
+        )}
+
+        <AIChatPanel
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          onSendMessage={handleAICommand}
+          canEdit={canEdit}
+        />
+
+        {!isChatOpen && (
+          <button
+            type="button"
+            className="ai-toggle-btn"
+            onClick={() => setIsChatOpen(true)}
+            aria-label="Open AI Assistant"
+          >
+            <img src={aiIcon} alt="" width={28} height={28} />
+          </button>
         )}
       </div>
     </div>
