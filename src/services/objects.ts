@@ -47,16 +47,29 @@ export type ObjectUpdates =
   | { content: string }
   | { fillColor: string }
   | { strokeColor?: string; strokeWidth?: number }
+  | { connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
   | { emoji: string; fontSize?: number }
   | { textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
 
 /** Input for creating a new object (server adds createdBy, createdAt, updatedAt). Optional fields get defaults. */
 export type CreateObjectInput =
   | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
-  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string }
-  | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string }
-  | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string }
-  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number }
+  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; inverted?: boolean }
+  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
+  | { type: 'diamond'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'star'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'pentagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'hexagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'octagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'arrow'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; direction?: 'right' | 'left' }
+  | { type: 'plus'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'parallelogram'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; shapeKind: 'right' | 'left' }
+  | { type: 'cylinder'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; shapeKind: 'vertical' | 'horizontal' }
+  | { type: 'tab-shape'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'trapezoid'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'circle-cross'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
   | { type: 'pen'; points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
@@ -97,7 +110,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         type: 'rectangle',
         position: data.position as { x: number; y: number },
         dimensions: data.dimensions as { width: number; height: number },
-        fillColor: (data.fillColor as string) ?? '#93c5fd',
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
       }
     case 'circle':
       return {
@@ -105,7 +120,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         type: 'circle',
         position: data.position as { x: number; y: number },
         dimensions: data.dimensions as { width: number; height: number },
-        fillColor: (data.fillColor as string) ?? '#93c5fd',
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
       }
     case 'triangle':
       return {
@@ -113,7 +130,10 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         type: 'triangle',
         position: data.position as { x: number; y: number },
         dimensions: data.dimensions as { width: number; height: number },
-        fillColor: (data.fillColor as string) ?? '#93c5fd',
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+        inverted: (data.inverted as boolean) ?? false,
       }
     case 'line':
       return {
@@ -121,8 +141,78 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         type: 'line',
         start: data.start as { x: number; y: number },
         end: data.end as { x: number; y: number },
-        strokeColor: data.strokeColor as string | undefined,
-        strokeWidth: data.strokeWidth as number | undefined,
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+        connectionType: (data.connectionType as 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-elbow-bidirectional' | 'arrow-double') ?? 'line',
+      }
+    case 'diamond':
+    case 'pentagon':
+    case 'hexagon':
+    case 'octagon':
+      return {
+        ...base,
+        type,
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+      }
+    case 'star':
+      return {
+        ...base,
+        type: 'star',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+      }
+    case 'arrow':
+      return {
+        ...base,
+        type: 'arrow',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+        direction: (data.direction as 'right' | 'left') ?? 'right',
+      }
+    case 'plus':
+    case 'tab-shape':
+    case 'trapezoid':
+    case 'circle-cross':
+      return {
+        ...base,
+        type,
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+      }
+    case 'parallelogram':
+      return {
+        ...base,
+        type: 'parallelogram',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+        shapeKind: (data.shapeKind as 'right' | 'left') ?? 'right',
+      }
+    case 'cylinder':
+      return {
+        ...base,
+        type: 'cylinder',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        fillColor: (data.fillColor as string) ?? 'transparent',
+        strokeColor: (data.strokeColor as string) ?? '#000000',
+        strokeWidth: (data.strokeWidth as number) ?? 2,
+        shapeKind: (data.shapeKind as 'vertical' | 'horizontal') ?? 'vertical',
       }
     case 'pen': {
       const flat = (data.points as number[]) ?? []
@@ -206,8 +296,16 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
     defaults.content = input.content ?? ''
     defaults.textStyle = input.textStyle ?? DEFAULT_TEXT_STYLE
     defaults.fillColor = input.fillColor ?? '#fef08a'
-  } else if (input.type === 'rectangle' || input.type === 'circle' || input.type === 'triangle') {
-    defaults.fillColor = input.fillColor ?? '#93c5fd'
+  } else if (
+    input.type === 'rectangle' || input.type === 'circle' || input.type === 'triangle' ||
+    input.type === 'diamond' || input.type === 'star' || input.type === 'pentagon' ||
+    input.type === 'hexagon' || input.type === 'octagon' || input.type === 'arrow' ||
+    input.type === 'plus' || input.type === 'parallelogram' || input.type === 'cylinder' ||
+    input.type === 'tab-shape' || input.type === 'trapezoid' || input.type === 'circle-cross'
+  ) {
+    defaults.fillColor = input.fillColor ?? 'transparent'
+    defaults.strokeColor = input.strokeColor ?? '#000000'
+    defaults.strokeWidth = input.strokeWidth ?? 2
   } else if (input.type === 'text') {
     defaults.content = input.content ?? ''
     defaults.textStyle = input.textStyle ?? DEFAULT_TEXT_STYLE
@@ -269,9 +367,55 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
     case 'rectangle':
     case 'circle':
     case 'triangle':
-      return { ...base, position: obj.position, dimensions: obj.dimensions, fillColor: obj.fillColor }
+    case 'diamond':
+    case 'star':
+    case 'pentagon':
+    case 'hexagon':
+    case 'octagon':
+    case 'arrow':
+    case 'plus':
+    case 'tab-shape':
+    case 'trapezoid':
+    case 'circle-cross':
+      return {
+        ...base,
+        position: obj.position,
+        dimensions: obj.dimensions,
+        fillColor: obj.fillColor,
+        strokeColor: (obj as { strokeColor?: string }).strokeColor,
+        strokeWidth: (obj as { strokeWidth?: number }).strokeWidth,
+        ...(obj.type === 'triangle' && 'inverted' in obj && { inverted: obj.inverted }),
+        ...(obj.type === 'arrow' && 'direction' in obj && { direction: obj.direction }),
+      }
+    case 'parallelogram':
+      return {
+        ...base,
+        position: obj.position,
+        dimensions: obj.dimensions,
+        fillColor: obj.fillColor,
+        strokeColor: obj.strokeColor,
+        strokeWidth: obj.strokeWidth,
+        shapeKind: obj.shapeKind,
+      }
+    case 'cylinder':
+      return {
+        ...base,
+        position: obj.position,
+        dimensions: obj.dimensions,
+        fillColor: obj.fillColor,
+        strokeColor: obj.strokeColor,
+        strokeWidth: obj.strokeWidth,
+        shapeKind: obj.shapeKind,
+      }
     case 'line':
-      return { ...base, start: obj.start, end: obj.end, strokeColor: obj.strokeColor, strokeWidth: obj.strokeWidth }
+      return {
+        ...base,
+        start: obj.start,
+        end: obj.end,
+        strokeColor: obj.strokeColor,
+        strokeWidth: obj.strokeWidth,
+        connectionType: obj.connectionType ?? 'line',
+      }
     case 'pen':
       return {
         ...base,

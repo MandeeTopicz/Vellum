@@ -93,6 +93,11 @@ interface InfiniteCanvasProps {
   onEraserMove?: (pos: CanvasPosition) => void
   /** Cursor override when pen tools active (e.g. crosshair, eraser circle) */
   cursor?: string
+  /** Arrow tool active: handle click-and-drag instead of pan */
+  arrowToolActive?: boolean
+  onArrowDragStart?: (pos: CanvasPosition) => void
+  onArrowDragMove?: (pos: CanvasPosition) => void
+  onArrowDragEnd?: (pos: CanvasPosition) => void
 }
 
 function InfiniteCanvas({
@@ -114,6 +119,10 @@ function InfiniteCanvas({
   onPenStrokeEnd,
   onEraserMove,
   cursor,
+  arrowToolActive = false,
+  onArrowDragStart,
+  onArrowDragMove,
+  onArrowDragEnd,
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const viewportRef = useRef(viewport)
@@ -123,6 +132,8 @@ function InfiniteCanvas({
   const [isEraserDragging, setIsEraserDragging] = useState(false)
   const isPenDrawingRef = useRef(false)
   const isEraserDraggingRef = useRef(false)
+  const isArrowDraggingRef = useRef(false)
+  const [isArrowDragging, setIsArrowDragging] = useState(false)
   const panStartRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, scale: 1 })
   const didPanRef = useRef(false)
   const rafIdRef = useRef<number | null>(null)
@@ -190,6 +201,12 @@ function InfiniteCanvas({
         onEraserMove(canvasPos)
         return
       }
+      if (arrowToolActive && onArrowDragStart) {
+        isArrowDraggingRef.current = true
+        setIsArrowDragging(true)
+        onArrowDragStart(canvasPos)
+        return
+      }
       const stage = stageRef.current
       if (stage) {
         const pos = stage.getPointerPosition()
@@ -201,7 +218,7 @@ function InfiniteCanvas({
         }
       }
     },
-    [viewport, editingTextOpen, penDrawingActive, eraserActive, onPenStrokeStart, onEraserMove, getCanvasPos]
+    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, getCanvasPos]
   )
 
   const handleMouseMovePan = useCallback(
@@ -234,6 +251,13 @@ function InfiniteCanvas({
   )
 
   const handleMouseUp = useCallback(() => {
+    if (isArrowDraggingRef.current && onArrowDragEnd) {
+      isArrowDraggingRef.current = false
+      setIsArrowDragging(false)
+      const pos = getCanvasPos()
+      if (pos) onArrowDragEnd(pos)
+      return
+    }
     if (isPenDrawingRef.current) {
       isPenDrawingRef.current = false
       setIsPenDrawing(false)
@@ -257,11 +281,15 @@ function InfiniteCanvas({
       }
       setIsPanning(false)
     }
-  }, [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd])
+  }, [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd, onArrowDragEnd, getCanvasPos])
 
   const combinedMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const canvasPos = getCanvasPos()
+      if (isArrowDraggingRef.current && canvasPos && onArrowDragMove) {
+        onArrowDragMove(canvasPos)
+        return
+      }
       if (isPenDrawingRef.current && canvasPos && onPenStrokeMove) {
         onPenStrokeMove(canvasPos)
         return
@@ -273,7 +301,7 @@ function InfiniteCanvas({
       handleMouseMovePan(e)
       if (!isPanning) onMouseMove?.(e)
     },
-    [handleMouseMovePan, onMouseMove, isPanning, onPenStrokeMove, onEraserMove, getCanvasPos]
+    [handleMouseMovePan, onMouseMove, isPanning, onPenStrokeMove, onEraserMove, onArrowDragMove, getCanvasPos]
   )
 
   const handleClick = useCallback(

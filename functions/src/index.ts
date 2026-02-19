@@ -59,10 +59,12 @@ export const processAICommand = onCall(
     const systemPrompt =
       `You are an expert design assistant for collaborative whiteboards. The canvas is 2000x2000px with (0,0) top-left and (2000,2000) bottom-right. Default position: x=${defaultX}, y=${defaultY}. ` +
       'You can have natural conversations, ask clarifying questions, suggest alternatives, and remember what the user said. ' +
-      'ACKNOWLEDGMENTS: When the user gives acknowledgments (e.g. "Great, thanks!", "Perfect!", "Awesome!", "Got it", "Thanks", "Nice", "Cool"), respond briefly and naturally without calling any tools. Do NOT repeat the last action or call arrangeInGrid, groupObjects, etc. Just say something like "You\'re welcome!" or "Glad I could help!" and stop. ' +
+      'CRITICAL - ACKNOWLEDGMENTS: When the user says "Thank you", "Thanks", "Perfect", "Great", "Awesome", "Nice", "Good", "Looks good", "Love it", "Okay", "Ok", "Got it", "Cool", or similar praise/acknowledgment, DO NOT call any tools. Respond conversationally only (e.g. "You\'re welcome!", "Glad I could help!"). Do NOT delete, create, move, or modify anything. These are NOT action requests. If unsure, treat it as an acknowledgment. ' +
       'When the user asks "how does my board look?", "analyze this layout", or "what improvements do you suggest?", use analyzeBoardLayout. Look for: scattered objects that could be grouped; similar-colored items; lack of structure; overlapping areas; unused space; objects that could be connected. Offer to implement improvements. ' +
       'CRITICAL: When the user agrees to improvements (e.g. "yes", "organize them", "do it", "go ahead", "please"), you MUST call the action tools. Do NOT just describe what to do — actually execute. Use arrangeInGrid, groupObjects, moveObjects, createConnector with objectIds from the board context. ' +
-      'Available tools: createStickyNote, createShape, changeColor, moveObjects, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. Use sensible defaults for colors and positions.'
+      'FLOWCHART CREATION: When the user requests a flowchart with SPECIFIC SHAPES (cylinders, diamonds, rectangles, parallelograms, etc.): DO NOT use createTemplate or createFlowchart (those create sticky notes). Use createFlowchartNode to create each shape with the exact type requested, then createConnector to link them. Shape types: rectangle, diamond, cylinder-vertical, cylinder-horizontal, parallelogram-right, tab-shape, circle, trapezoid. Example: "Create a flowchart with 5 horizontal cylinders" → call createFlowchartNode 5 times with shapeType cylinder-horizontal, then createConnector between them. ' +
+      'createTemplate is ONLY for sticky-note templates: SWOT, retrospective, journeyMap, Kanban. Do NOT use createTemplate for flowcharts with specific shapes. ' +
+      'Available tools: createStickyNote, createShape, createFlowchartNode, changeColor, moveObjects, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. Use sensible defaults for colors and positions.'
 
     const history = Array.isArray(conversationHistory) ? conversationHistory : []
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -194,14 +196,14 @@ export const processAICommand = onCall(
             type: 'function',
             function: {
               name: 'createTemplate',
-              description: 'Create a pre-defined template: SWOT (2x2 quadrants), retrospective (4 columns), or journey map (horizontal steps)',
+              description: 'Create templates using STICKY NOTES ONLY: SWOT (2x2), retrospective (4 columns), journey map (horizontal steps), Kanban. DO NOT use for flowcharts with specific shapes (cylinders, diamonds, etc.) — use createFlowchartNode instead.',
               parameters: {
                 type: 'object',
                 properties: {
                   templateType: {
                     type: 'string',
                     enum: ['swot', 'retrospective', 'journeyMap'],
-                    description: 'Type of template to create',
+                    description: 'Template type — these use sticky notes only',
                   },
                   startX: { type: 'number', description: 'Top-left X position for the template' },
                   startY: { type: 'number', description: 'Top-left Y position for the template' },
@@ -232,18 +234,23 @@ export const processAICommand = onCall(
             type: 'function',
             function: {
               name: 'createConnector',
-              description: 'Create a line or arrow connecting two points',
+              description: 'Create a line or arrow connecting two points or between flowchart nodes',
               parameters: {
                 type: 'object',
                 properties: {
-                  fromX: { type: 'number', description: 'Start X position' },
+                  fromX: { type: 'number', description: 'Start X position (or center of fromObjectId)' },
                   fromY: { type: 'number', description: 'Start Y position' },
                   toX: { type: 'number', description: 'End X position' },
                   toY: { type: 'number', description: 'End Y position' },
                   style: {
                     type: 'string',
                     enum: ['line', 'arrow'],
-                    description: 'Line style',
+                    description: 'Line style (arrow draws arrowhead at end)',
+                  },
+                  arrowType: {
+                    type: 'string',
+                    enum: ['straight', 'curved', 'elbow'],
+                    description: 'For arrows: straight line, curved bezier, or elbow (default straight)',
                   },
                   color: { type: 'string', description: 'Stroke color (default black)' },
                 },
@@ -254,8 +261,31 @@ export const processAICommand = onCall(
           {
             type: 'function',
             function: {
+              name: 'createFlowchartNode',
+              description: 'Create a single flowchart node with a specific shape type. Use for flowcharts with cylinders, diamonds, parallelograms, etc. Call multiple times then createConnector to link them.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  shapeType: {
+                    type: 'string',
+                    enum: ['rectangle', 'diamond', 'cylinder-vertical', 'cylinder-horizontal', 'parallelogram-right', 'parallelogram-left', 'tab-shape', 'circle', 'trapezoid'],
+                    description: 'The shape type for this flowchart node',
+                  },
+                  x: { type: 'number', description: 'X position (top-left of shape)' },
+                  y: { type: 'number', description: 'Y position (top-left of shape)' },
+                  text: { type: 'string', description: 'Text label for this node' },
+                  width: { type: 'number', description: 'Width of the shape (default 120)' },
+                  height: { type: 'number', description: 'Height of the shape (default 80)' },
+                },
+                required: ['shapeType', 'x', 'y', 'text'],
+              },
+            },
+          },
+          {
+            type: 'function',
+            function: {
               name: 'createFlowchart',
-              description: 'Create a flowchart with connected steps (process, decision, start, end)',
+              description: 'Create a flowchart with connected steps using sticky notes (generic flowcharts). For flowcharts with specific shapes like cylinders or diamonds, use createFlowchartNode instead.',
               parameters: {
                 type: 'object',
                 properties: {

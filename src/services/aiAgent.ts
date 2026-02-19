@@ -6,7 +6,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { firebaseApp } from './firebase'
 import { createObject, updateObject, deleteObject, type CreateObjectInput } from './objects'
-import { DEFAULT_STICKY_SIZE, DEFAULT_SHAPE_SIZE, type BoardObjectType } from '../types/objects'
+import { DEFAULT_STICKY_SIZE, DEFAULT_SHAPE_SIZE, DEFAULT_LINE_LENGTH, type BoardObjectType } from '../types/objects'
 import { DEFAULT_TEXT_STYLE } from '../types'
 import type { BoardObject } from '../types'
 
@@ -147,6 +147,29 @@ function objToCreateInput(obj: BoardObject, dx: number, dy: number): CreateObjec
  * const result = await processAICommand(boardId, 'Create a yellow sticky note', Object.values(objects), { x: 1000, y: 1000 })
  * if (result.createdItems) result.createdItems.forEach(({ objectId, createInput }) => pushUndo({ type: 'create', objectId, createInput }))
  */
+/** Phrases that are acknowledgments, not action requests. Never call AI for these. */
+const ACKNOWLEDGMENTS = [
+  'thank you',
+  'thanks',
+  'ty',
+  'thx',
+  'perfect',
+  'great',
+  'awesome',
+  'nice',
+  'good',
+  'looks good',
+  'love it',
+  'amazing',
+  'okay',
+  'ok',
+  'got it',
+  "that's good",
+  "thats good",
+  'cool',
+  'sounds good',
+]
+
 export async function processAICommand(
   boardId: string,
   userPrompt: string,
@@ -161,6 +184,17 @@ export async function processAICommand(
   console.log('[AI] Processing command:', userPrompt)
   const actions: string[] = []
   const createdItems: { objectId: string; createInput: CreateObjectInput }[] = []
+
+  const lowerPrompt = userPrompt.toLowerCase().trim()
+  const stripped = lowerPrompt.replace(/[!?.]+$/, '').trim()
+  if (ACKNOWLEDGMENTS.some((ack) => stripped === ack)) {
+    return {
+      success: true,
+      message: "You're welcome! Let me know if you need anything else.",
+      actions: [],
+    }
+  }
+
   const objectsMap = new Map(objectsList.map((o) => [o.objectId, o]))
 
   try {
@@ -222,14 +256,36 @@ export async function processAICommand(
           const shapeType = (args.shapeType ?? 'rectangle') as BoardObjectType
           const x: number = typeof args.x === 'number' ? args.x : 500
           const y: number = typeof args.y === 'number' ? args.y : 500
-          const fillColor = resolveColor(args.color, '#3b82f6')
+          const strokeColor = resolveColor(args.color, '#000000')
 
-          const createInput: CreateObjectInput = {
-            type: shapeType,
-            position: { x, y },
-            dimensions: DEFAULT_SHAPE_SIZE,
-            fillColor,
-          }
+          const createInput: CreateObjectInput =
+            shapeType === 'line'
+              ? {
+                  type: 'line',
+                  start: { x: x - DEFAULT_LINE_LENGTH / 2, y },
+                  end: { x: x + DEFAULT_LINE_LENGTH / 2, y },
+                  strokeColor,
+                  strokeWidth: 2,
+                }
+              : (
+                  ['rectangle', 'circle', 'triangle', 'diamond', 'star', 'pentagon', 'hexagon', 'octagon', 'arrow'] as const
+                ).includes(shapeType as 'rectangle' | 'circle' | 'triangle' | 'diamond' | 'star' | 'pentagon' | 'hexagon' | 'octagon' | 'arrow')
+                ? {
+                    type: shapeType as 'rectangle' | 'circle' | 'triangle' | 'diamond' | 'star' | 'pentagon' | 'hexagon' | 'octagon' | 'arrow',
+                    position: { x: x - DEFAULT_SHAPE_SIZE.width / 2, y: y - DEFAULT_SHAPE_SIZE.height / 2 },
+                    dimensions: DEFAULT_SHAPE_SIZE,
+                    fillColor: 'transparent',
+                    strokeColor,
+                    strokeWidth: 2,
+                  }
+                : {
+                    type: 'rectangle' as const,
+                    position: { x: x - DEFAULT_SHAPE_SIZE.width / 2, y: y - DEFAULT_SHAPE_SIZE.height / 2 },
+                    dimensions: DEFAULT_SHAPE_SIZE,
+                    fillColor: 'transparent',
+                    strokeColor,
+                    strokeWidth: 2,
+                  }
           console.log('[AI] Creating shape with input:', createInput)
           const objectId = await createObject(boardId, createInput)
           createdItems.push({ objectId, createInput })
@@ -361,18 +417,72 @@ export async function processAICommand(
           createdItems.push({ objectId, createInput })
           actions.push(`Created text box at (${x}, ${y})`)
 
+        } else if (fn.name === 'createFlowchartNode') {
+          const shapeType = (args.shapeType ?? 'rectangle') as string
+          const x = typeof args.x === 'number' ? args.x : 500
+          const y = typeof args.y === 'number' ? args.y : 500
+          const w = typeof args.width === 'number' ? args.width : 120
+          const h = typeof args.height === 'number' ? args.height : 80
+          const text = (args.text ?? '') as string
+          const baseStyle = { fillColor: 'transparent' as const, strokeColor: '#000000' as const, strokeWidth: 2 as const }
+
+          let createInput: CreateObjectInput
+          if (shapeType === 'cylinder-vertical') {
+            createInput = { type: 'cylinder', position: { x, y }, dimensions: { width: w, height: h }, shapeKind: 'vertical', ...baseStyle }
+          } else if (shapeType === 'cylinder-horizontal') {
+            createInput = { type: 'cylinder', position: { x, y }, dimensions: { width: w, height: h }, shapeKind: 'horizontal', ...baseStyle }
+          } else if (shapeType === 'parallelogram-right') {
+            createInput = { type: 'parallelogram', position: { x, y }, dimensions: { width: w, height: h }, shapeKind: 'right', ...baseStyle }
+          } else if (shapeType === 'parallelogram-left') {
+            createInput = { type: 'parallelogram', position: { x, y }, dimensions: { width: w, height: h }, shapeKind: 'left', ...baseStyle }
+          } else if (['rectangle', 'diamond', 'circle', 'tab-shape', 'trapezoid'].includes(shapeType)) {
+            createInput = {
+              type: shapeType as 'rectangle' | 'diamond' | 'circle' | 'tab-shape' | 'trapezoid',
+              position: { x, y },
+              dimensions: { width: w, height: h },
+              ...baseStyle,
+            }
+          } else {
+            createInput = { type: 'rectangle', position: { x, y }, dimensions: { width: w, height: h }, ...baseStyle }
+          }
+
+          const objectId = await createObject(boardId, createInput)
+          createdItems.push({ objectId, createInput })
+
+          if (text) {
+            const textW = Math.min(140, w - 16)
+            const textH = 30
+            const textX = x + (w - textW) / 2
+            const textY = y + (h - textH) / 2
+            const textInput: CreateObjectInput = {
+              type: 'text',
+              position: { x: textX, y: textY },
+              dimensions: { width: textW, height: textH },
+              content: text,
+            }
+            const textId = await createObject(boardId, textInput)
+            createdItems.push({ objectId: textId, createInput: textInput })
+          }
+
+          actions.push(`Created ${shapeType} node${text ? `: "${text}"` : ''}`)
         } else if (fn.name === 'createConnector') {
           const fromX = typeof args.fromX === 'number' ? args.fromX : 0
           const fromY = typeof args.fromY === 'number' ? args.fromY : 0
           const toX = typeof args.toX === 'number' ? args.toX : fromX + 100
           const toY = typeof args.toY === 'number' ? args.toY : fromY
           const strokeColor = resolveColor(args.color, '#1f2937')
+          const useArrow = args.style === 'arrow'
+          const arrowType = args.arrowType ?? 'straight'
+          const connectionType = useArrow
+            ? (arrowType === 'curved' ? 'arrow-curved' : arrowType === 'elbow' ? 'arrow-elbow-bidirectional' : 'arrow-straight')
+            : 'line'
           const createInput: CreateObjectInput = {
             type: 'line',
             start: { x: fromX, y: fromY },
             end: { x: toX, y: toY },
             strokeColor,
-            strokeWidth: args.style === 'arrow' ? 3 : 2,
+            strokeWidth: useArrow ? 2 : 2,
+            connectionType: connectionType as 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-elbow-bidirectional' | 'arrow-double',
           }
           const objectId = await createObject(boardId, createInput)
           createdItems.push({ objectId, createInput })
@@ -663,7 +773,6 @@ export async function processAICommand(
           if (objs.length > 0) {
             const minX = Math.min(...objs.map((o) => ('position' in o ? o.position.x : 'start' in o ? (o as { start: { x: number } }).start.x : 0)))
             const minY = Math.min(...objs.map((o) => ('position' in o ? o.position.y : 'start' in o ? (o as { start: { y: number } }).start.y : 0)))
-            const clusterGap = 20
             for (let i = 0; i < objs.length; i++) {
               const o = objs[i]
               const newX = minX + (i % 3) * 120
