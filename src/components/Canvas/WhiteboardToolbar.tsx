@@ -11,16 +11,38 @@ import linkIcon from '../../assets/link-icon.png'
 import redoIcon from '../../assets/redo-icon.png'
 import undoIcon from '../../assets/undo-icon.png'
 import pencilIcon from '../../assets/pencil-icon.png'
+import ShapeIcon from './ShapeIcon'
 import './WhiteboardToolbar.css'
+
+/** All shape tool types (connections use two-click; others single-click) */
+export type ShapeTool =
+  | 'arrow-straight'
+  | 'arrow-curved'
+  | 'arrow-curved-cw'
+  | 'arrow-elbow-bidirectional'
+  | 'arrow-double'
+  | 'rectangle'
+  | 'circle'
+  | 'diamond'
+  | 'triangle'
+  | 'triangle-inverted'
+  | 'pentagon'
+  | 'hexagon'
+  | 'plus'
+  | 'star'
+  | 'parallelogram-right'
+  | 'parallelogram-left'
+  | 'cylinder-vertical'
+  | 'cylinder-horizontal'
+  | 'tab-shape'
+  | 'trapezoid'
+  | 'circle-cross'
 
 export type WhiteboardTool =
   | 'pointer'
   | 'sticky'
-  | 'rectangle'
-  | 'circle'
-  | 'triangle'
-  | 'line'
   | 'text'
+  | ShapeTool
   | 'pen'
   | 'highlighter'
   | 'eraser'
@@ -79,7 +101,49 @@ export default function WhiteboardToolbar({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const shapeTypes = ['rectangle', 'circle', 'triangle', 'line'] as const
+  const shapeCategories: Record<
+    string,
+    { label: string; shapes: { type: string; label: string }[] }
+  > = {
+    connections: {
+      label: 'Connections',
+      shapes: [
+        { type: 'arrow-curved', label: 'Curved Arrow ↺' },
+        { type: 'arrow-curved-cw', label: 'Curved Arrow ↻' },
+        { type: 'arrow-elbow-bidirectional', label: 'Bidirectional Elbow Arrow' },
+        { type: 'arrow-straight', label: 'Straight Arrow' },
+        { type: 'arrow-double', label: 'Double Arrow' },
+      ],
+    },
+    basic: {
+      label: 'Basic',
+      shapes: [
+        { type: 'rectangle', label: 'Rectangle' },
+        { type: 'circle', label: 'Circle' },
+        { type: 'diamond', label: 'Diamond' },
+        { type: 'triangle', label: 'Triangle' },
+        { type: 'triangle-inverted', label: 'Inverted Triangle' },
+        { type: 'pentagon', label: 'Pentagon' },
+        { type: 'hexagon', label: 'Hexagon' },
+        { type: 'plus', label: 'Plus' },
+        { type: 'star', label: 'Star' },
+      ],
+    },
+    flowchart: {
+      label: 'Flowchart',
+      shapes: [
+        { type: 'parallelogram-right', label: 'Right Parallelogram' },
+        { type: 'parallelogram-left', label: 'Left Parallelogram' },
+        { type: 'cylinder-vertical', label: 'Vertical Cylinder' },
+        { type: 'cylinder-horizontal', label: 'Horizontal Cylinder' },
+        { type: 'tab-shape', label: 'Tab' },
+        { type: 'trapezoid', label: 'Trapezoid' },
+        { type: 'circle-cross', label: 'Circle Cross' },
+      ],
+    },
+  }
+  const allShapeTypes = Object.values(shapeCategories).flatMap((c) => c.shapes.map((s) => s.type))
+  const isShapeTool = (t: WhiteboardTool): t is ShapeTool => allShapeTypes.includes(t)
 
   return (
     <div className="whiteboard-toolbar">
@@ -147,13 +211,14 @@ export default function WhiteboardToolbar({
         <img src={stickyIcon} alt="Sticky Note" width={20} height={20} />
       </button>
 
-      <button
-        type="button"
-        className={`toolbar-icon-btn ${activeTool === 'text' ? 'active' : ''}`}
-        onClick={() => {
-          closeAllDropdowns()
-          onToolSelect(activeTool === 'text' ? 'pointer' : 'text')
-        }}
+        <button
+          type="button"
+          className={`toolbar-icon-btn ${activeTool === 'text' ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            closeAllDropdowns()
+            onToolSelect(activeTool === 'text' ? 'pointer' : 'text')
+          }}
         disabled={!canEdit}
         title="Text Box"
       >
@@ -163,7 +228,7 @@ export default function WhiteboardToolbar({
       <div className="toolbar-dropdown" ref={shapesRef}>
         <button
           type="button"
-          className={`toolbar-icon-btn ${shapeTypes.includes(activeTool as typeof shapeTypes[number]) ? 'active' : ''}`}
+          className={`toolbar-icon-btn ${isShapeTool(activeTool) ? 'active' : ''}`}
           onClick={() => {
             closeAllDropdowns()
             setShapesOpen((v) => !v)
@@ -174,19 +239,29 @@ export default function WhiteboardToolbar({
           <img src={shapesIcon} alt="Shapes" width={20} height={20} />
         </button>
         {shapesOpen && (
-          <div className="toolbar-dropdown-panel">
-            {shapeTypes.map((shape) => (
-              <button
-                key={shape}
-                type="button"
-                className="toolbar-dropdown-item"
-                onClick={() => {
-                  onToolSelect(shape)
-                  setShapesOpen(false)
-                }}
-              >
-                {shape.charAt(0).toUpperCase() + shape.slice(1)}
-              </button>
+          <div className="toolbar-dropdown-panel shape-selector-panel">
+            {Object.entries(shapeCategories).map(([categoryKey, category]) => (
+              <div key={categoryKey} className="shape-category">
+                <div className="category-label">{category.label}</div>
+                <div className="shape-grid">
+                  {category.shapes.map((shape) => (
+                    <button
+                      key={shape.type}
+                      type="button"
+                      className={`shape-button ${activeTool === shape.type ? 'active' : ''}`}
+                      onClick={() => {
+                        onToolSelect(
+                          shape.type as WhiteboardTool
+                        )
+                        setShapesOpen(false)
+                      }}
+                      title={shape.label}
+                    >
+                      <ShapeIcon type={shape.type} />
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}

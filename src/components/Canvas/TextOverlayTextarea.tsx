@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react'
+import type { TextStyle } from '../../types/objects'
 
 /** Editing state: screen coords only for placement. canvasX/canvasY captured at open. */
 export interface EditingTextState {
@@ -9,6 +10,8 @@ export interface EditingTextState {
   canvasY: number
   value: string
   isNew: boolean
+  /** Text formatting; used for toolbar and persisted on create/update */
+  textStyle: TextStyle
 }
 
 interface TextOverlayTextareaProps {
@@ -46,34 +49,58 @@ export default function TextOverlayTextarea({
   }
 
   const handleBlur = () => {
-    onCommit(textareaRef.current?.value ?? '')
+    requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active?.closest('.text-format-toolbar')) {
+        return
+      }
+      onCommit(textareaRef.current?.value ?? '')
+    })
   }
 
+  const { textStyle } = editingText
+
   return (
-    <textarea
-      ref={textareaRef}
-      defaultValue={editingText.value}
-      placeholder="Text"
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
+    <div
+      className="text-box-editor"
       style={{
         position: 'fixed',
         left: editingText.screenX,
         top: editingText.screenY,
-        width: '200px',
-        minHeight: '40px',
-        fontSize: '16px',
-        fontFamily: 'Arial, sans-serif',
-        padding: 8,
-        margin: 0,
-        border: '2px solid #4f46e5',
-        borderRadius: 4,
-        resize: 'none',
-        outline: 'none',
-        background: '#fff',
-        boxSizing: 'border-box',
-        zIndex: 1000,
+        zIndex: 9999,
+        pointerEvents: 'auto',
       }}
-    />
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <textarea
+        ref={textareaRef}
+        defaultValue={editingText.value}
+        placeholder="Text"
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          width: '200px',
+          minHeight: '40px',
+          fontSize: `${textStyle.fontSize}px`,
+          fontFamily: textStyle.fontFamily,
+          fontWeight: textStyle.bold ? 'bold' : 'normal',
+          fontStyle: textStyle.italic ? 'italic' : 'normal',
+          textDecoration: textStyle.underline ? 'underline' : 'none',
+          color: textStyle.fontColor,
+          textAlign: textStyle.textAlign,
+          padding: 8,
+          margin: 0,
+          border: '2px solid #4f46e5',
+          borderRadius: 4,
+          resize: 'none',
+          outline: 'none',
+          background: '#fff',
+          boxSizing: 'border-box',
+        }}
+      />
+    </div>
   )
 }

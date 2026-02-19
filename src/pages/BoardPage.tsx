@@ -25,7 +25,8 @@ import {
 } from '../services/presence'
 import { useAuth } from '../context/AuthContext'
 import type { Board as BoardType } from '../types'
-import type { ObjectsMap, LineObject, PenObject, BoardObject } from '../types'
+import type { ObjectsMap, LineObject, PenObject, BoardObject, TextObject } from '../types'
+import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import type { BoardComment } from '../services/comments'
 import type { PresenceUser } from '../services/presence'
 import InfiniteCanvas, {
@@ -44,6 +45,7 @@ import WhiteboardNav from '../components/Canvas/WhiteboardNav'
 import WhiteboardControls from '../components/Canvas/WhiteboardControls'
 import StickyTextEditor from '../components/Canvas/StickyTextEditor'
 import TextOverlayTextarea, { type EditingTextState } from '../components/Canvas/TextOverlayTextarea'
+import TextFormatToolbar from '../components/Canvas/TextFormatToolbar'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import InviteModal from '../components/Invite/InviteModal'
@@ -82,6 +84,15 @@ export default function BoardPage() {
   const [currentPenPoints, setCurrentPenPoints] = useState<[number, number][]>([])
   /** Ref updated synchronously during stroke so mouseup always has latest points (avoids React batching delay) */
   const currentPenPointsRef = useRef<[number, number][]>([])
+  /** Click-and-drag arrow preview: live preview during drag */
+  const [arrowPreview, setArrowPreview] = useState<{
+    startX: number
+    startY: number
+    endX: number
+    endY: number
+    type: string
+  } | null>(null)
+  const justFinishedArrowDragRef = useRef(false)
 
   const [penToolStyles, setPenToolStyles] = useState<PenStyles>({
     color: '#000000',
@@ -513,6 +524,11 @@ export default function BoardPage() {
 
       const { x: canvasX, y: canvasY } = payload
 
+      if (justFinishedArrowDragRef.current) {
+        justFinishedArrowDragRef.current = false
+        return
+      }
+
       if (activeTool === 'comment' && canEdit) {
         setCommentModalPos({ x: canvasX, y: canvasY })
       }
@@ -527,13 +543,36 @@ export default function BoardPage() {
             canvasY,
             value: '',
             isNew: true,
+            textStyle: { ...DEFAULT_TEXT_STYLE },
           })
         }
       } else if (
-        (activeTool === 'sticky' || activeTool === 'rectangle' || activeTool === 'circle' ||
-          activeTool === 'triangle' || activeTool === 'line') &&
+        (activeTool === 'sticky' ||
+          activeTool === 'rectangle' ||
+          activeTool === 'circle' ||
+          activeTool === 'triangle' ||
+          activeTool === 'triangle-inverted' ||
+          activeTool === 'diamond' ||
+          activeTool === 'star' ||
+          activeTool === 'pentagon' ||
+          activeTool === 'hexagon' ||
+          activeTool === 'plus' ||
+          activeTool === 'parallelogram-right' ||
+          activeTool === 'parallelogram-left' ||
+          activeTool === 'cylinder-vertical' ||
+          activeTool === 'cylinder-horizontal' ||
+          activeTool === 'tab-shape' ||
+          activeTool === 'trapezoid' ||
+          activeTool === 'circle-cross') &&
         canEdit
       ) {
+        const basePos = { x: canvasX - 50, y: canvasY - 50 }
+        const baseDims = { width: 100, height: 100 }
+        const baseStyle = {
+          fillColor: 'transparent' as const,
+          strokeColor: '#000000' as const,
+          strokeWidth: 2 as const,
+        }
         let input: Parameters<typeof createObject>[1] | null = null
         if (activeTool === 'sticky') {
           input = {
@@ -543,35 +582,36 @@ export default function BoardPage() {
             fillColor: '#fef08a',
           }
         } else if (activeTool === 'rectangle') {
-          input = {
-            type: 'rectangle',
-            position: { x: canvasX - 75, y: canvasY - 50 },
-            dimensions: { width: 150, height: 100 },
-          }
+          input = { type: 'rectangle', position: { ...basePos, y: canvasY - 50 }, dimensions: { width: 150, height: 100 }, ...baseStyle }
         } else if (activeTool === 'circle') {
-          input = {
-            type: 'circle',
-            position: { x: canvasX - 50, y: canvasY - 50 },
-            dimensions: { width: 100, height: 100 },
-          }
+          input = { type: 'circle', position: basePos, dimensions: baseDims, ...baseStyle }
         } else if (activeTool === 'triangle') {
-          input = {
-            type: 'triangle',
-            position: { x: canvasX - 50, y: canvasY - 40 },
-            dimensions: { width: 100, height: 80 },
-          }
-        } else if (activeTool === 'line') {
-          input = {
-            type: 'line',
-            start: { x: canvasX - 50, y: canvasY },
-            end: { x: canvasX + 50, y: canvasY },
-          }
+          input = { type: 'triangle', position: { ...basePos, y: canvasY - 40 }, dimensions: { width: 100, height: 80 }, ...baseStyle }
+        } else if (activeTool === 'triangle-inverted') {
+          input = { type: 'triangle', position: { ...basePos, y: canvasY - 40 }, dimensions: { width: 100, height: 80 }, inverted: true, ...baseStyle }
+        } else if (activeTool === 'diamond' || activeTool === 'star' || activeTool === 'pentagon' || activeTool === 'hexagon') {
+          input = { type: activeTool, position: basePos, dimensions: baseDims, ...baseStyle }
+        } else if (activeTool === 'plus') {
+          input = { type: 'plus', position: basePos, dimensions: baseDims, ...baseStyle }
+        } else if (activeTool === 'parallelogram-right') {
+          input = { type: 'parallelogram', position: basePos, dimensions: baseDims, shapeKind: 'right', ...baseStyle }
+        } else if (activeTool === 'parallelogram-left') {
+          input = { type: 'parallelogram', position: basePos, dimensions: baseDims, shapeKind: 'left', ...baseStyle }
+        } else if (activeTool === 'cylinder-vertical') {
+          input = { type: 'cylinder', position: basePos, dimensions: baseDims, shapeKind: 'vertical', ...baseStyle }
+        } else if (activeTool === 'cylinder-horizontal') {
+          input = { type: 'cylinder', position: basePos, dimensions: baseDims, shapeKind: 'horizontal', ...baseStyle }
+        } else if (activeTool === 'tab-shape' || activeTool === 'trapezoid' || activeTool === 'circle-cross') {
+          input = { type: activeTool, position: basePos, dimensions: baseDims, ...baseStyle }
         }
         if (input) {
           const objectId = await createObject(id, input)
           pushUndo({ type: 'create', objectId, createInput: input })
           if (activeTool === 'sticky') {
             setEditingStickyId(objectId)
+          } else {
+            setSelectedIds(new Set([objectId]))
+            setActiveTool('pointer')
           }
         }
       }
@@ -584,6 +624,8 @@ export default function BoardPage() {
         }
         const objectId = await createObject(id, input)
         pushUndo({ type: 'create', objectId, createInput: input })
+        setSelectedIds(new Set([objectId]))
+        setActiveTool('pointer')
       }
     },
     [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText]
@@ -599,6 +641,7 @@ export default function BoardPage() {
       if (!canEdit) return
       const obj = objects[objectId]
       if (!obj || obj.type !== 'text') return
+      const textObj = obj as TextObject
       const stage = canvasToStage(obj.position.x, obj.position.y, viewport)
       const rect = containerRef.current?.getBoundingClientRect()
       const screenX = rect ? rect.left + stage.x : stage.x
@@ -609,8 +652,9 @@ export default function BoardPage() {
         screenY,
         canvasX: obj.position.x,
         canvasY: obj.position.y,
-        value: obj.content ?? '',
+        value: textObj.content ?? '',
         isNew: false,
+        textStyle: { ...DEFAULT_TEXT_STYLE, ...textObj.textStyle },
       })
     },
     [canEdit, objects, viewport]
@@ -645,6 +689,7 @@ export default function BoardPage() {
           position: { x: editingText.canvasX, y: editingText.canvasY },
           dimensions: { width: 200, height: 40 },
           content: trimmed,
+          textStyle: editingText.textStyle,
         }
         const objectId = await createObject(id, input)
         pushUndo({ type: 'create', objectId, createInput: input })
@@ -668,6 +713,24 @@ export default function BoardPage() {
     justClosedTextEditorRef.current = true
     setActiveTool('pointer')
   }, [])
+
+  const handleTextFormatChange = useCallback(
+    (updates: Partial<typeof DEFAULT_TEXT_STYLE>) => {
+      if (!editingText) return
+      const newStyle = { ...editingText.textStyle, ...updates }
+      setEditingText({ ...editingText, textStyle: newStyle })
+      if (!editingText.isNew && editingText.id) {
+        updateObject(id, editingText.id, { textStyle: updates })
+      }
+    },
+    [id, editingText]
+  )
+
+  const handleCreateMindMap = useCallback(() => {
+    // Placeholder: convert text box to mind map nodes (future feature)
+    console.log('Create mind map from text box')
+  }, [])
+
 
   const handleCommentSave = useCallback(
     async (text: string) => {
@@ -723,6 +786,7 @@ export default function BoardPage() {
   const handleToolSelect = useCallback((tool: WhiteboardTool) => {
     justClosedStickyEditorRef.current = false
     justClosedTextEditorRef.current = false
+    setArrowPreview(null)
     setActiveTool(tool)
   }, [])
 
@@ -786,7 +850,63 @@ export default function BoardPage() {
     }
     const objectId = await createObject(id, input)
     pushUndo({ type: 'create', objectId, createInput: input })
+    setSelectedIds(new Set([objectId]))
+    setActiveTool('pointer')
   }, [id, canEdit, activeTool, penStyles, pushUndo])
+
+  const CONNECTION_TOOLS = ['arrow-straight', 'arrow-curved', 'arrow-curved-cw', 'arrow-elbow-bidirectional', 'arrow-double'] as const
+  const isConnectionTool = (t: string): t is (typeof CONNECTION_TOOLS)[number] =>
+    CONNECTION_TOOLS.includes(t as (typeof CONNECTION_TOOLS)[number])
+  const arrowToolActive = isConnectionTool(activeTool) && canEdit
+
+  const handleArrowDragStart = useCallback(
+    (pos: { x: number; y: number }) => {
+      if (!arrowToolActive) return
+      setArrowPreview({
+        startX: pos.x,
+        startY: pos.y,
+        endX: pos.x,
+        endY: pos.y,
+        type: activeTool,
+      })
+    },
+    [arrowToolActive, activeTool]
+  )
+
+  const handleArrowDragMove = useCallback(
+    (pos: { x: number; y: number }) => {
+      setArrowPreview((prev) =>
+        prev ? { ...prev, endX: pos.x, endY: pos.y } : null
+      )
+    },
+    []
+  )
+
+  const handleArrowDragEnd = useCallback(
+    async (pos: { x: number; y: number }) => {
+      const preview = arrowPreview
+      setArrowPreview(null)
+      justFinishedArrowDragRef.current = true
+      if (!id || !canEdit || !preview) return
+      const distance = Math.sqrt(
+        (pos.x - preview.startX) ** 2 + (pos.y - preview.startY) ** 2
+      )
+      if (distance < 10) return
+      const input = {
+        type: 'line' as const,
+        start: { x: preview.startX, y: preview.startY },
+        end: { x: pos.x, y: pos.y },
+        strokeColor: '#000000',
+        strokeWidth: 2,
+        connectionType: preview.type as 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double',
+      }
+      const objectId = await createObject(id, input)
+      pushUndo({ type: 'create', objectId, createInput: input })
+      setSelectedIds(new Set([objectId]))
+      setActiveTool('pointer')
+    },
+    [id, canEdit, arrowPreview, pushUndo]
+  )
 
   const handleEraserMove = useCallback(
     (pos: { x: number; y: number }) => {
@@ -820,7 +940,7 @@ export default function BoardPage() {
         }
       : null
 
-  const canvasCursor = penDrawingActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
+  const canvasCursor = penDrawingActive || arrowToolActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
 
   const handleEmojiSelect = useCallback((emoji: string) => {
     setPendingEmoji(emoji)
@@ -919,10 +1039,15 @@ export default function BoardPage() {
           onPenStrokeEnd={handlePenStrokeEnd}
           onEraserMove={handleEraserMove}
           cursor={canvasCursor}
+          arrowToolActive={arrowToolActive}
+          onArrowDragStart={handleArrowDragStart}
+          onArrowDragMove={handleArrowDragMove}
+          onArrowDragEnd={handleArrowDragEnd}
         >
           <ObjectLayer
             objects={objects}
             viewport={viewport}
+            arrowPreview={arrowPreview}
             selectedIds={selectedIds}
             isPointerTool={activeTool === 'pointer'}
             onObjectDragEnd={handleObjectDragEnd}
@@ -988,11 +1113,20 @@ export default function BoardPage() {
         )}
 
         {editingText && (
-          <TextOverlayTextarea
-            editingText={editingText}
-            onCommit={handleTextCommit}
-            onCancel={handleTextCancel}
-          />
+          <>
+            <TextFormatToolbar
+              textBoxId={editingText.id}
+              currentFormat={editingText.textStyle}
+              position={{ x: editingText.screenX, y: editingText.screenY }}
+              onFormatChange={handleTextFormatChange}
+              onCreateMindMap={handleCreateMindMap}
+            />
+            <TextOverlayTextarea
+              editingText={editingText}
+              onCommit={handleTextCommit}
+              onCancel={handleTextCancel}
+            />
+          </>
         )}
 
         <CommentModal

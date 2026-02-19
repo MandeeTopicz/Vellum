@@ -9,6 +9,8 @@ export interface TextStyle {
   italic: boolean
   underline: boolean
   textAlign: 'left' | 'center' | 'right'
+  /** Render content as bullet list (split by newlines, prefix with bullets) */
+  bulletList?: boolean
 }
 
 export const DEFAULT_TEXT_STYLE: TextStyle = {
@@ -36,7 +38,27 @@ export interface BoardObjectBase {
   updatedAt: Timestamp
 }
 
-export type BoardObjectType = 'sticky' | 'rectangle' | 'circle' | 'triangle' | 'line' | 'text' | 'pen' | 'emoji'
+export type BoardObjectType =
+  | 'sticky'
+  | 'rectangle'
+  | 'circle'
+  | 'triangle'
+  | 'line'
+  | 'diamond'
+  | 'star'
+  | 'pentagon'
+  | 'hexagon'
+  | 'octagon'
+  | 'arrow'
+  | 'plus'
+  | 'parallelogram'
+  | 'cylinder'
+  | 'tab-shape'
+  | 'trapezoid'
+  | 'circle-cross'
+  | 'text'
+  | 'pen'
+  | 'emoji'
 
 /** Sticky note: resizable, editable text, fill + text styling */
 export interface StickyObject extends BoardObjectBase {
@@ -48,37 +70,147 @@ export interface StickyObject extends BoardObjectBase {
   textStyle: TextStyle
 }
 
+/** Base shape styling (black border, transparent fill by default) */
+export const DEFAULT_STROKE_COLOR = '#000000'
+export const DEFAULT_FILL_COLOR = 'transparent'
+
 /** Rectangle shape */
 export interface RectangleObject extends BoardObjectBase {
   type: 'rectangle'
   position: Point
   dimensions: { width: number; height: number }
   fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
 }
 
-/** Circle/ellipse: dimensions = width & height (radius = min/2 for circle) */
+/** Circle/ellipse: dimensions = width & height */
 export interface CircleObject extends BoardObjectBase {
   type: 'circle'
   position: Point
   dimensions: { width: number; height: number }
   fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
 }
 
-/** Triangle: position + dimensions (drawn as right triangle) */
+/** Triangle: position + dimensions; inverted = point down */
 export interface TriangleObject extends BoardObjectBase {
   type: 'triangle'
   position: Point
   dimensions: { width: number; height: number }
   fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+  /** Point-up (default) or point-down */
+  inverted?: boolean
 }
 
-/** Straight line: start and end points */
+/** Polygon shape (diamond, pentagon, hexagon, octagon): position + dimensions */
+export interface PolygonObject extends BoardObjectBase {
+  type: 'diamond' | 'pentagon' | 'hexagon' | 'octagon'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Star shape: position + dimensions */
+export interface StarObject extends BoardObjectBase {
+  type: 'star'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Arrow shape: position + dimensions; direction = 'right' | 'left' */
+export interface ArrowObject extends BoardObjectBase {
+  type: 'arrow'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+  direction?: 'right' | 'left'
+}
+
+/** Plus/cross shape */
+export interface PlusObject extends BoardObjectBase {
+  type: 'plus'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Parallelogram: shapeKind = 'right' | 'left' */
+export interface ParallelogramObject extends BoardObjectBase {
+  type: 'parallelogram'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+  shapeKind: 'right' | 'left'
+}
+
+/** Cylinder: shapeKind = 'vertical' | 'horizontal' */
+export interface CylinderObject extends BoardObjectBase {
+  type: 'cylinder'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+  shapeKind: 'vertical' | 'horizontal'
+}
+
+/** Tab (document tab) shape */
+export interface TabShapeObject extends BoardObjectBase {
+  type: 'tab-shape'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Trapezoid shape */
+export interface TrapezoidObject extends BoardObjectBase {
+  type: 'trapezoid'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Circle with cross (flowchart decision) */
+export interface CircleCrossObject extends BoardObjectBase {
+  type: 'circle-cross'
+  position: Point
+  dimensions: { width: number; height: number }
+  fillColor: string
+  strokeColor?: string
+  strokeWidth?: number
+}
+
+/** Connection arrow variant */
+export type ConnectionType = 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double'
+
+/** Line or connection arrow: start and end points */
 export interface LineObject extends BoardObjectBase {
   type: 'line'
   start: Point
   end: Point
   strokeColor?: string
   strokeWidth?: number
+  /** Arrow style for connection tools; default 'line' = plain line */
+  connectionType?: ConnectionType
 }
 
 /** Stroke style for pen objects */
@@ -118,6 +250,15 @@ export type BoardObject =
   | CircleObject
   | TriangleObject
   | LineObject
+  | PolygonObject
+  | StarObject
+  | ArrowObject
+  | PlusObject
+  | ParallelogramObject
+  | CylinderObject
+  | TabShapeObject
+  | TrapezoidObject
+  | CircleCrossObject
   | TextObject
   | PenObject
   | EmojiObject
