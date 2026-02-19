@@ -64,7 +64,12 @@ function initFirebase(): {
   return { app, auth, db, rtdb }
 }
 
-const { app: firebaseApp, auth: authInstance, db: firestore, rtdb: realtimeDb } = initFirebase()
+  const { app: firebaseApp, auth: authInstance, db: firestore, rtdb: realtimeDb } = initFirebase()
+
+  if (import.meta.env?.DEV) {
+    const url = firebaseConfig.databaseURL
+    console.log('[FIREBASE] RTDB initialized, databaseURL:', url ?? '(MISSING - RTDB will not work!)')
+  }
 
 export { firebaseApp, authInstance as auth, firestore as db, realtimeDb as rtdb }
 

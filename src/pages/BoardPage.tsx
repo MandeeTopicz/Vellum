@@ -21,6 +21,7 @@ import { loadUndoStacks, saveUndoStacks, MAX_STACK_SIZE } from '../services/undo
 import {
   setUserPresence,
   subscribeToPresence,
+  subscribeToRtdbConnection,
   updateCursor,
 } from '../services/presence'
 import { useAuth } from '../context/AuthContext'
@@ -34,6 +35,7 @@ import InfiniteCanvas, {
   type BackgroundClickPayload,
   canvasToStage,
 } from '../components/Canvas/InfiniteCanvas'
+import { stageToCanvas } from '../utils/coordinates'
 import ObjectLayer, { type ObjectResizeUpdates, type CurrentPenStroke } from '../components/Canvas/ObjectLayer'
 import CursorLayer from '../components/Canvas/CursorLayer'
 import CommentLayer from '../components/Canvas/CommentLayer'
@@ -132,6 +134,7 @@ export default function BoardPage() {
   viewportRef.current = viewport
 
   const id = boardId ?? ''
+  const CURSOR_DEBUG = import.meta.env?.DEV === true
 
   useEffect(() => {
     if (!id) return
@@ -238,6 +241,21 @@ export default function BoardPage() {
     const unsub = subscribeToPresence(id, setPresence)
     return unsub
   }, [id])
+
+  useEffect(() => {
+    if (!CURSOR_DEBUG) return
+    console.log('[CURSOR] Board mounted', { boardId: id, userId: user?.uid, hasUser: !!user })
+    if (!user?.uid) console.error('[CURSOR] userId is null/undefined!')
+    if (!id) console.error('[CURSOR] boardId is null/undefined!')
+  }, [CURSOR_DEBUG, id, user?.uid])
+
+  useEffect(() => {
+    if (!CURSOR_DEBUG) return
+    const unsub = subscribeToRtdbConnection((connected) => {
+      console.log(connected ? '[RTDB] ✓ Connected' : '[RTDB] ✗ NOT connected')
+    })
+    return unsub
+  }, [CURSOR_DEBUG])
 
   useEffect(() => {
     const el = containerRef.current
@@ -358,10 +376,25 @@ export default function BoardPage() {
 
   const lastCursorUpdateRef = useRef(0)
   const CURSOR_THROTTLE_MS = 100
+
+  const flushCursorUpdate = useCallback(
+    (stageX: number, stageY: number) => {
+      if (CURSOR_DEBUG) console.log('[CURSOR] flushCursorUpdate called', { stageX, stageY })
+      if (!id || editingText != null) {
+        if (CURSOR_DEBUG) console.log('[CURSOR] Skipping - no id or editingText', { id: !!id, editingText: !!editingText })
+        return
+      }
+      const v = viewportRef.current
+      const canvas = stageToCanvas(stageX, stageY, v)
+      if (CURSOR_DEBUG) console.log('[CURSOR] Converted to canvas:', canvas)
+      updateCursor(id, canvas.x, canvas.y)
+    },
+    [id, editingText]
+  )
+
   const handleStageMouseMove = useCallback(
     (e: { target: { getStage: () => unknown } }) => {
       if (!id) return
-      if (editingText != null) return
       const now = Date.now()
       if (now - lastCursorUpdateRef.current < CURSOR_THROTTLE_MS) return
       lastCursorUpdateRef.current = now
@@ -369,13 +402,37 @@ export default function BoardPage() {
       if (!stage?.getPointerPosition) return
       const pos = stage.getPointerPosition()
       if (!pos) return
-      const v = viewportRef.current
-      const worldX = (pos.x - v.x) / v.scale
-      const worldY = (pos.y - v.y) / v.scale
-      updateCursor(id, worldX, worldY)
+      flushCursorUpdate(pos.x, pos.y)
     },
-    [id, editingText]
+    [id, flushCursorUpdate]
   )
+
+  // Document-level mousemove fallback: Stage doesn't receive events when cursor is over
+  // overlays (toolbar, header). This ensures cursor tracking works across the board area.
+  useEffect(() => {
+    if (!id) return
+    if (CURSOR_DEBUG) console.log('[CURSOR] Setting up document mousemove listener')
+    const handler = (e: MouseEvent) => {
+      if (CURSOR_DEBUG && Math.random() < 0.01) console.log('[CURSOR] Document mousemove', e.clientX, e.clientY)
+      if (editingText != null) return
+      const now = Date.now()
+      if (now - lastCursorUpdateRef.current < CURSOR_THROTTLE_MS) return
+      lastCursorUpdateRef.current = now
+      const el = containerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const stageX = e.clientX - rect.left
+      const stageY = e.clientY - rect.top
+      if (stageX < 0 || stageY < 0 || stageX > rect.width || stageY > rect.height) return
+      flushCursorUpdate(stageX, stageY)
+    }
+    document.addEventListener('mousemove', handler)
+    if (CURSOR_DEBUG) console.log('[CURSOR] Document listener attached')
+    return () => {
+      document.removeEventListener('mousemove', handler)
+      if (CURSOR_DEBUG) console.log('[CURSOR] Document listener removed')
+    }
+  }, [id, editingText, flushCursorUpdate])
 
   const getViewportCenter = useCallback(() => {
     const w = dimensions.width
@@ -1176,6 +1233,7 @@ export default function BoardPage() {
             <img src={aiIcon} alt="" width={28} height={28} />
           </button>
         )}
+
       </div>
     </div>
   )

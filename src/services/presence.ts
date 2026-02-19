@@ -11,6 +11,12 @@ import {
 } from 'firebase/database'
 import { rtdb, auth } from './firebase'
 
+/** Subscribe to RTDB connection state (for debugging). */
+export function subscribeToRtdbConnection(callback: (connected: boolean) => void): Unsubscribe {
+  const connectedRef = ref(rtdb, '.info/connected')
+  return onValue(connectedRef, (snapshot) => callback(snapshot.val() === true))
+}
+
 const CURSOR_THROTTLE_MS = 50 // ~20fps - smooth enough for cursor, reduces re-renders
 
 export interface PresenceUser {
@@ -79,6 +85,8 @@ let lastCursorUpdate = 0
 let pendingCursor: { x: number; y: number } | null = null
 let cursorFlushTimer: ReturnType<typeof setTimeout> | null = null
 
+const CURSOR_DEBUG = import.meta.env?.DEV === true
+
 /**
  * Updates the current user's cursor position on the board (throttled for performance).
  * @param boardId - The board ID
@@ -87,7 +95,17 @@ let cursorFlushTimer: ReturnType<typeof setTimeout> | null = null
  */
 export function updateCursor(boardId: string, x: number, y: number): void {
   const user = auth.currentUser
-  if (!user) return
+  if (CURSOR_DEBUG) {
+    console.log('[PRESENCE] updateCursor called:', { boardId, x, y, hasUser: !!user })
+  }
+  if (!user) {
+    if (CURSOR_DEBUG) console.error('[PRESENCE] No auth.currentUser - cursor update skipped')
+    return
+  }
+  if (!boardId) {
+    if (CURSOR_DEBUG) console.error('[PRESENCE] Invalid boardId:', boardId)
+    return
+  }
 
   const now = Date.now()
   if (now - lastCursorUpdate < CURSOR_THROTTLE_MS) {
@@ -105,6 +123,10 @@ export function updateCursor(boardId: string, x: number, y: number): void {
             lastUpdated: Date.now(),
           }
           set(cursorRef, payload)
+            .then(() => {
+              if (CURSOR_DEBUG) console.log('[PRESENCE] ✓ Cursor update (throttled) successful')
+            })
+            .catch((err) => console.error('[PRESENCE] ✗ Cursor update (throttled) failed:', err))
           pendingCursor = null
         }
         cursorFlushTimer = null
@@ -123,7 +145,14 @@ export function updateCursor(boardId: string, x: number, y: number): void {
     color: hashToColor(user.uid),
     lastUpdated: Date.now(),
   }
+  if (CURSOR_DEBUG) console.log('[PRESENCE] Writing to cursors/', boardId, '/', user.uid, payload)
   set(cursorRef, payload)
+    .then(() => {
+      if (CURSOR_DEBUG) console.log('[PRESENCE] ✓ Cursor update successful')
+    })
+    .catch((err) => {
+      console.error('[PRESENCE] ✗ Cursor update failed:', err)
+    })
 }
 
 /**
@@ -168,10 +197,19 @@ export function subscribeToCursors(
   boardId: string,
   callback: (cursors: CursorPosition[]) => void
 ): Unsubscribe {
+  if (CURSOR_DEBUG) {
+    console.log('[subscribeToCursors] Called for board:', boardId)
+    console.log('[subscribeToCursors] Path: cursors/' + boardId)
+  }
   const cursorsRef = ref(rtdb, `cursors/${boardId}`)
-  return onValue(cursorsRef, (snapshot) => {
-    const data = snapshot.val()
-    const cursors: CursorPosition[] = []
+  const unsub = onValue(
+    cursorsRef,
+    (snapshot) => {
+      const data = snapshot.val()
+      if (CURSOR_DEBUG) {
+        console.log('[subscribeToCursors] SNAPSHOT received, exists:', snapshot.exists(), 'raw:', data)
+      }
+      const cursors: CursorPosition[] = []
     if (data && typeof data === 'object') {
       for (const [userId, val] of Object.entries(data)) {
         const v = val as Record<string, unknown>
@@ -187,6 +225,40 @@ export function subscribeToCursors(
         }
       }
     }
-    callback(cursors)
-  })
+      if (CURSOR_DEBUG) console.log('[subscribeToCursors] Parsed cursors:', cursors.length, cursors)
+      callback(cursors)
+    },
+    (error) => {
+      console.error('[subscribeToCursors] ERROR:', error)
+      if (error && typeof error === 'object' && 'code' in error) {
+        console.error('[subscribeToCursors] Error code:', (error as { code: string }).code)
+        console.error('[subscribeToCursors] Error message:', (error as { message: string }).message)
+      }
+    }
+  )
+  if (CURSOR_DEBUG) console.log('[subscribeToCursors] Listener attached')
+  return unsub
+}
+
+/**
+ * Writes a fake test cursor to Firebase (dev only). Use to verify subscription/rendering.
+ * Cursor appears at (600, 600) as user "debug-test-user".
+ */
+export async function writeTestCursor(boardId: string): Promise<void> {
+  if (!CURSOR_DEBUG) return
+  const cursorRef = ref(rtdb, `cursors/${boardId}/debug-test-user`)
+  const payload = {
+    x: 600,
+    y: 600,
+    displayName: 'Test User',
+    color: '#ef4444',
+    lastUpdated: Date.now(),
+  }
+  console.log('[PRESENCE] writeTestCursor writing to', `cursors/${boardId}/debug-test-user`, payload)
+  try {
+    await set(cursorRef, payload)
+    console.log('[PRESENCE] ✓ Test cursor written - subscription should pick it up')
+  } catch (err) {
+    console.error('[PRESENCE] ✗ writeTestCursor failed:', err)
+  }
 }

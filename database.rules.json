@@ -2,16 +2,16 @@
   "rules": {
     "presence": {
       "$boardId": {
+        ".read": "auth != null",
         "$userId": {
-          ".read": "auth != null",
           ".write": "auth != null && auth.uid == $userId"
         }
       }
     },
     "cursors": {
       "$boardId": {
+        ".read": "auth != null",
         "$userId": {
-          ".read": "auth != null",
           ".write": "auth != null && auth.uid == $userId"
         }
       }
