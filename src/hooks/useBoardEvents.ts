@@ -1,8 +1,8 @@
 /**
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
-import { useEffect, useCallback, useMemo } from 'react'
-import { createObject, updateObject, deleteObject, type ObjectUpdates } from '../services/objects'
+import { useEffect, useCallback, useMemo, useRef } from 'react'
+import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates } from '../services/objects'
 import {
   createComment,
   addCommentReply,
@@ -15,6 +15,7 @@ import type { ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
 import type { LineObject, PenObject, TextObject, ObjectsMap } from '../types'
 import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
+import { debounce } from '../utils/debounce'
 import type { useBoardData } from './useBoardData'
 import type { useBoardTools } from './useBoardTools'
 
@@ -57,6 +58,19 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   } = tools
 
   const containerRef = data.containerRef
+
+  const dragUpdateQueueRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const flushDragUpdates = useMemo(
+    () =>
+      debounce(async () => {
+        const queue = dragUpdateQueueRef.current
+        if (queue.size === 0 || !id) return
+        const updates = Array.from(queue.entries()).map(([objectId, { x, y }]) => ({ objectId, x, y }))
+        queue.clear()
+        await batchUpdatePositions(id, updates)
+      }, 100),
+    [id]
+  )
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -153,7 +167,8 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           if (!o || !('position' in o)) return prev
           return { ...prev, [objectId]: { ...o, position: { x, y } } }
         })
-        await updateObject(id, objectId, to)
+        dragUpdateQueueRef.current.set(objectId, { x, y })
+        flushDragUpdates()
       }
     },
     [id, canEdit, objects, pushUndo, setObjects]

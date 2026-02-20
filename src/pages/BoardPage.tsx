@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useMemo } from 'react'
+import { useMemo, memo } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getBoard } from '../services/board'
 import { acceptInvite } from '../services/invites'
@@ -12,7 +12,9 @@ import WhiteboardToolbar from '../components/Canvas/WhiteboardToolbar'
 import PenStylingToolbar from '../components/Canvas/PenStylingToolbar'
 import AIChatPanel from '../components/Canvas/AIChatPanel'
 import WhiteboardNav from '../components/Canvas/WhiteboardNav'
-import WhiteboardControls from '../components/Canvas/WhiteboardControls'
+import WhiteboardControlsBase from '../components/Canvas/WhiteboardControls'
+
+const WhiteboardControls = memo(WhiteboardControlsBase)
 import StickyTextEditor from '../components/Canvas/StickyTextEditor'
 import TextOverlayTextarea from '../components/Canvas/TextOverlayTextarea'
 import TextFormatToolbar from '../components/Canvas/TextFormatToolbar'
@@ -51,11 +53,13 @@ export default function BoardPage() {
     pendingInvite,
     viewport,
     setViewport,
+    onViewportChange,
     dimensions,
     containerRef,
     handleUndo,
     handleRedo,
     setIsZooming,
+    setIsPanning,
   } = data
 
   const tools = useBoardTools(canEdit)
@@ -142,7 +146,7 @@ export default function BoardPage() {
           width={dimensions.width}
           height={dimensions.height}
           viewport={viewport}
-          onViewportChange={setViewport}
+          onViewportChange={onViewportChange}
           onMouseMove={events.handleStageMouseMove}
           onBackgroundClick={events.handleBackgroundClick}
           showGrid={tools.showGrid}
@@ -161,6 +165,7 @@ export default function BoardPage() {
           onArrowDragMove={events.handleArrowDragMove}
           onArrowDragEnd={events.handleArrowDragEnd}
           onZoomingChange={setIsZooming}
+          onPanningChange={setIsPanning}
         >
           <ObjectLayer
             objects={objects}

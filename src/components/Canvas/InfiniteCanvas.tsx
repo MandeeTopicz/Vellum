@@ -1,5 +1,6 @@
 import { memo, useRef, useCallback, useState, useMemo, useEffect } from 'react'
-import { Stage, Layer, Group, Rect, Circle } from 'react-konva'
+import { throttle } from '../../utils/throttle'
+import { Stage, Layer, Group, Rect, Shape } from 'react-konva'
 import type Konva from 'konva'
 import { stageToCanvas } from '../../utils/coordinates'
 import type { Viewport } from '../../utils/coordinates'
@@ -30,38 +31,35 @@ interface DotGridProps {
   viewport: Viewport
 }
 
-/** Light gray dots, 20px spacing. Only renders dots in visible viewport for performance. */
+/** Light gray dots, 20px spacing. Uses Canvas API in a single Shape for performance (avoids thousands of Circle components). */
 function DotGrid({ width, height, viewport }: DotGridProps) {
-  const dots = useMemo(() => {
-    const { x: vx, y: vy, scale } = viewport
-    const left = -vx / scale - GRID_SPACING
-    const top = -vy / scale - GRID_SPACING
-    const right = (-vx + width) / scale + GRID_SPACING
-    const bottom = (-vy + height) / scale + GRID_SPACING
-    const startX = Math.floor(left / GRID_SPACING) * GRID_SPACING
-    const startY = Math.floor(top / GRID_SPACING) * GRID_SPACING
-    const endX = Math.ceil(right / GRID_SPACING) * GRID_SPACING
-    const endY = Math.ceil(bottom / GRID_SPACING) * GRID_SPACING
-    const result: React.ReactNode[] = []
-    for (let x = startX; x <= endX; x += GRID_SPACING) {
-      for (let y = startY; y <= endY; y += GRID_SPACING) {
-        result.push(
-          <Circle
-            key={`${x},${y}`}
-            x={x}
-            y={y}
-            radius={GRID_DOT_RADIUS}
-            fill={GRID_DOT_COLOR}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-        )
-      }
-    }
-    return result
-  }, [width, height, viewport])
+  return (
+    <Shape
+      listening={false}
+      perfectDrawEnabled={false}
+      sceneFunc={(context, shape) => {
+        const { x: vx, y: vy, scale } = viewport
+        const left = -vx / scale - GRID_SPACING
+        const top = -vy / scale - GRID_SPACING
+        const right = (-vx + width) / scale + GRID_SPACING
+        const bottom = (-vy + height) / scale + GRID_SPACING
+        const startX = Math.floor(left / GRID_SPACING) * GRID_SPACING
+        const startY = Math.floor(top / GRID_SPACING) * GRID_SPACING
+        const endX = Math.ceil(right / GRID_SPACING) * GRID_SPACING
+        const endY = Math.ceil(bottom / GRID_SPACING) * GRID_SPACING
 
-  return <Group listening={false}>{dots}</Group>
+        context.fillStyle = GRID_DOT_COLOR
+        for (let x = startX; x <= endX; x += GRID_SPACING) {
+          for (let y = startY; y <= endY; y += GRID_SPACING) {
+            context.beginPath()
+            context.arc(x, y, GRID_DOT_RADIUS, 0, Math.PI * 2)
+            context.fill()
+          }
+        }
+        context.fillStrokeShape(shape)
+      }}
+    />
+  )
 }
 
 /** Canvas position for pen/eraser callbacks */
@@ -74,7 +72,7 @@ interface InfiniteCanvasProps {
   width: number
   height: number
   viewport: Viewport
-  onViewportChange: (v: Viewport) => void
+  onViewportChange: (v: Viewport, options?: { immediate?: boolean }) => void
   onMouseMove?: (e: Konva.KonvaEventObject<MouseEvent>) => void
   /** Canvas coords (x,y) + clientX/clientY for fixed overlays. Conversion happens ONCE here. */
   onBackgroundClick?: (payload: BackgroundClickPayload) => void
@@ -100,6 +98,8 @@ interface InfiniteCanvasProps {
   onArrowDragEnd?: (pos: CanvasPosition) => void
   /** Called when zoom starts/stops - use to skip heavy work (e.g. cursor sync) during zoom */
   onZoomingChange?: (zooming: boolean) => void
+  /** Called when pan starts/stops - use to skip cursor updates during pan */
+  onPanningChange?: (panning: boolean) => void
 }
 
 function InfiniteCanvas({
@@ -126,6 +126,7 @@ function InfiniteCanvas({
   onArrowDragMove,
   onArrowDragEnd,
   onZoomingChange,
+  onPanningChange,
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const viewportRef = useRef(viewport)
@@ -142,6 +143,11 @@ function InfiniteCanvas({
   const rafIdRef = useRef<number | null>(null)
   const pendingPanRef = useRef<{ dx: number; dy: number } | null>(null)
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const throttledViewportChange = useMemo(
+    () => throttle((v: Viewport) => onViewportChange(v), 16),
+    [onViewportChange]
+  )
 
   useEffect(
     () => () => {
@@ -191,13 +197,13 @@ function InfiniteCanvas({
       const newX = pointer.x - mousePointTo.x * newScale
       const newY = pointer.y - mousePointTo.y * newScale
 
-      onViewportChange({
+      throttledViewportChange({
         x: newX,
         y: newY,
         scale: newScale,
       })
     },
-    [viewport, onViewportChange, editingTextOpen, onZoomingChange]
+    [viewport, throttledViewportChange, editingTextOpen, onZoomingChange]
   )
 
   const handleMouseDown = useCallback(
@@ -235,13 +241,14 @@ function InfiniteCanvas({
         const pos = stage.getPointerPosition()
         if (pos) {
           setIsPanning(true)
+          onPanningChange?.(true)
           didPanRef.current = false
           pendingPanRef.current = null
           panStartRef.current = { x: pos.x, y: pos.y, vx: viewport.x, vy: viewport.y, scale: viewport.scale }
         }
       }
     },
-    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, getCanvasPos]
+    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, onPanningChange, getCanvasPos]
   )
 
   const handleMouseMovePan = useCallback(
@@ -300,11 +307,12 @@ function InfiniteCanvas({
       const pending = pendingPanRef.current
       if (pending) {
         const { vx, vy, scale } = panStartRef.current
-        onViewportChange({ x: vx + pending.dx, y: vy + pending.dy, scale })
+        onViewportChange({ x: vx + pending.dx, y: vy + pending.dy, scale }, { immediate: true })
       }
       setIsPanning(false)
+      onPanningChange?.(false)
     }
-  }, [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd, onArrowDragEnd, getCanvasPos])
+  }, [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd, onArrowDragEnd, onPanningChange, getCanvasPos])
 
   const combinedMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -353,7 +361,7 @@ function InfiniteCanvas({
     [onBackgroundClick]
   )
 
-  return (
+  const result = (
     <Stage
       ref={stageRef}
       width={width}
@@ -402,6 +410,7 @@ function InfiniteCanvas({
       {cursorLayer}
     </Stage>
   )
+  return result
 }
 
 export default memo(InfiniteCanvas)

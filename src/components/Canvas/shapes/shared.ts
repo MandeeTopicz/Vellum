@@ -33,6 +33,8 @@ export interface BaseShapeProps {
   canEdit: boolean
   selected: boolean
   isPointerTool: boolean
+  /** When false, disable shadows/effects for performance when zoomed out */
+  showEffects?: boolean
   onObjectDragEnd: (objectId: string, x: number, y: number) => void
   onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void
   onObjectResizeEnd?: (objectId: string, updates: ObjectResizeUpdates) => void
@@ -52,7 +54,7 @@ export function shapeHandlers(
   isPointerTool: boolean
 ) {
   return {
-    listening: isPointerTool,
+    listening: isPointerTool && (selected || canEdit),
     draggable: canEdit && isPointerTool && selected,
     onDragEnd: (e: { target: Konva.Node }) => {
       const node = e.target

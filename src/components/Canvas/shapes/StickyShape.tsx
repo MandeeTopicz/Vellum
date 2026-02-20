@@ -18,6 +18,7 @@ import {
 export interface StickyShapeProps extends BaseShapeProps {
   obj: StickyObject
   onStickyDoubleClick: (objectId: string) => void
+  showEffects?: boolean
 }
 
 export function StickyShape({
@@ -26,6 +27,7 @@ export function StickyShape({
   canEdit,
   selected,
   isPointerTool,
+  showEffects = true,
   onObjectDragEnd,
   onObjectClick,
   onObjectResizeEnd,
@@ -91,10 +93,10 @@ export function StickyShape({
           stroke={selected ? '#8093F1' : '#d1d5db'}
           strokeWidth={selected ? 3 : 1}
           cornerRadius={obj.cornerRadius ?? 12}
-          shadowColor="black"
-          shadowBlur={6}
-          shadowOffset={{ x: 1, y: 2 }}
-          shadowOpacity={0.12}
+          shadowColor={showEffects ? 'black' : undefined}
+          shadowBlur={showEffects ? 6 : 0}
+          shadowOffset={showEffects ? { x: 1, y: 2 } : undefined}
+          shadowOpacity={showEffects ? 0.12 : 0}
           perfectDrawEnabled={false}
         />
         <Text

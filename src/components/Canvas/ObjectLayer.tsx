@@ -145,17 +145,15 @@ function ObjectLayerInner({
     [objects]
   )
 
-  const visibleObjects = useMemo(() => {
-    const filtered = sortedObjects.filter((obj) =>
+  const visibleObjects = useMemo(
+    () => sortedObjects.filter((obj) =>
       isInViewport(obj, viewport, canvasWidth, canvasHeight)
-    )
-    if (import.meta.env.DEV && filtered.length !== sortedObjects.length) {
-      console.log(`[VIEWPORT CULLING] Rendering ${filtered.length} of ${sortedObjects.length} objects`)
-    }
-    return filtered
-  }, [sortedObjects, viewport, canvasWidth, canvasHeight])
+    ),
+    [sortedObjects, viewport, canvasWidth, canvasHeight]
+  )
 
   const resizable = canEdit && onObjectResizeEnd
+  const showEffects = viewport.scale > 0.5
 
   return (
     <>
@@ -183,6 +181,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              showEffects={showEffects}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}

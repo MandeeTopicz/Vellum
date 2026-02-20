@@ -54,16 +54,32 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 })
   const viewportRef = useRef(viewport)
   viewportRef.current = viewport
+
+  const throttledSetViewport = useMemo(
+    () => throttle((v: Viewport) => setViewport(v), 33),
+    []
+  )
+  const onViewportChange = useCallback(
+    (v: Viewport, options?: { immediate?: boolean }) => {
+      viewportRef.current = v
+      if (options?.immediate) {
+        setViewport(v)
+      } else {
+        throttledSetViewport(v)
+      }
+    },
+    [throttledSetViewport]
+  )
   const [dimensions, setDimensions] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 800,
     height: typeof window !== 'undefined' ? window.innerHeight : 600,
   }))
   const [isZooming, setIsZooming] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
 
   const undoStackRef = useRef<UndoAction[]>([])
   const redoStackRef = useRef<UndoAction[]>([])
-
-  const CURSOR_DEBUG = import.meta.env?.DEV === true
+  const lastDimensionsRef = useRef({ width: 0, height: 0 })
 
   useEffect(() => {
     if (!id) return
@@ -137,54 +153,48 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   }, [id, user])
 
   useEffect(() => {
-    if (!id || !user || isZooming) return
-    if (containerRef.current) {
-      const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale
-      const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale
-      updateCursor(id, centerX, centerY)
-    }
-  }, [id, user, dimensions, viewport, isZooming])
-
-  useEffect(() => {
     if (!id) return
-    return subscribeToObjects(id, setObjects)
+    const unsub = subscribeToObjects(id, setObjects)
+    return () => unsub()
   }, [id])
 
   useEffect(() => {
     if (!id) return
-    return subscribeToComments(id, setComments)
+    const unsub = subscribeToComments(id, setComments)
+    return () => unsub()
   }, [id])
 
   useEffect(() => {
     if (!id) return
-    return subscribeToPresence(id, setPresence)
+    const unsub = subscribeToPresence(id, setPresence)
+    return () => unsub()
   }, [id])
-
-  useEffect(() => {
-    if (!CURSOR_DEBUG) return
-    return subscribeToRtdbConnection((connected) => {
-      console.log(connected ? '[RTDB] ✓ Connected' : '[RTDB] ✗ NOT connected')
-    })
-  }, [CURSOR_DEBUG])
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const updateSize = () => setDimensions({ width: window.innerWidth, height: window.innerHeight })
+    const updateSize = (width: number, height: number) => {
+      const last = lastDimensionsRef.current
+      if (last.width !== width || last.height !== height) {
+        lastDimensionsRef.current = { width, height }
+        setDimensions({ width, height })
+      }
+    }
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect
       if (rect?.width && rect?.height) {
-        setDimensions({ width: rect.width, height: rect.height })
+        updateSize(rect.width, rect.height)
       } else {
-        updateSize()
+        updateSize(window.innerWidth, window.innerHeight)
       }
     })
     ro.observe(el)
-    window.addEventListener('resize', updateSize)
-    updateSize()
+    const handleResize = () => updateSize(window.innerWidth, window.innerHeight)
+    window.addEventListener('resize', handleResize)
+    updateSize(window.innerWidth, window.innerHeight)
     return () => {
       ro.disconnect()
-      window.removeEventListener('resize', updateSize)
+      window.removeEventListener('resize', handleResize)
     }
   }, [])
 
@@ -251,21 +261,20 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   }, [id, canEdit])
 
   const throttledUpdateCursor = useMemo(
-    () =>
-      throttle((boardId: string, canvasX: number, canvasY: number) => {
-        updateCursor(boardId, canvasX, canvasY)
-      }, CURSOR_THROTTLE_MS),
+    () => throttle((boardId: string, canvasX: number, canvasY: number) => {
+      updateCursor(boardId, canvasX, canvasY)
+    }, CURSOR_THROTTLE_MS),
     []
   )
 
   const flushCursorUpdate = useCallback(
     (stageX: number, stageY: number) => {
-      if (isZooming || !id) return
+      if (isZooming || isPanning || !id) return
       const v = viewportRef.current
       const canvas = stageToCanvas(stageX, stageY, v)
       throttledUpdateCursor(id, canvas.x, canvas.y)
     },
-    [id, isZooming, throttledUpdateCursor]
+    [id, isZooming, isPanning, throttledUpdateCursor]
   )
 
   return {
@@ -281,15 +290,17 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
     pendingInvite,
     viewport,
     setViewport,
+    onViewportChange,
     dimensions,
     containerRef,
     isZooming,
     setIsZooming,
+    isPanning,
+    setIsPanning,
     pushUndo,
     handleUndo,
     handleRedo,
     viewportRef,
     flushCursorUpdate,
-    CURSOR_DEBUG,
   }
 }

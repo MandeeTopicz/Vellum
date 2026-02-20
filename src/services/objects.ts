@@ -10,6 +10,8 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   Timestamp,
@@ -344,6 +346,25 @@ export async function updateObject(boardId: string, objectId: string, updates: O
     ...updates,
     updatedAt: serverTimestamp(),
   })
+}
+
+/**
+ * Batch update positions for multiple objects. Use for drag-end batching.
+ */
+export async function batchUpdatePositions(
+  boardId: string,
+  updates: Array<{ objectId: string; x: number; y: number }>
+): Promise<void> {
+  if (updates.length === 0) return
+  const batch = writeBatch(db)
+  for (const { objectId, x, y } of updates) {
+    batch.update(objectRef(boardId, objectId), {
+      'position.x': x,
+      'position.y': y,
+      updatedAt: serverTimestamp(),
+    })
+  }
+  await batch.commit()
 }
 
 /**

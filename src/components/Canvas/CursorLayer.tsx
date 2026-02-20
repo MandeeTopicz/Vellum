@@ -46,6 +46,12 @@ function CursorLayer({
   const [now, setNow] = useState(() => Date.now())
   const animationFrameRef = useRef<number | null>(null)
 
+  const renderCountRef = useRef(0)
+  useEffect(() => {
+    renderCountRef.current += 1
+    console.log('[CursorLayer] Render #', renderCountRef.current, 'Cursors:', interpolatedCursors.size)
+  })
+
   // Subscribe to cursor updates from Firebase
   useEffect(() => {
     if (!boardId) return () => {}
