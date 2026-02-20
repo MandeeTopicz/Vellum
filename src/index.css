@@ -9,28 +9,49 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --vellum-primary: #8093F1;
+  --vellum-primary-hover: #6f82ed;
+  --vellum-primary-active: #5e71e9;
+  --vellum-primary-ring: rgba(128, 147, 241, 0.3);
 }
 
 * {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body, #root {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 a {
   font-weight: 500;
-  color: #4f46e5;
+  color: var(--vellum-primary);
   text-decoration: inherit;
 }
 
 a:hover {
-  color: #4338ca;
+  color: var(--vellum-primary-hover);
+}
+
+/* Vellum logo icon (used next to "Vellum" title in nav, login, dashboard) */
+.vellum-logo-icon {
+  height: 1.25em;
+  width: auto;
+  vertical-align: middle;
+  display: inline-block;
 }
 
 h1 {
@@ -39,26 +60,128 @@ h1 {
   color: #1a1a1a;
 }
 
-button {
+button,
+.btn,
+.button {
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: none;
   padding: 0.6em 1.2em;
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #ffffff;
-  color: #1a1a1a;
+  background-color: var(--vellum-primary);
+  color: white;
   cursor: pointer;
-  transition: border-color 0.25s, background-color 0.25s;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-button:hover {
-  border-color: #9ca3af;
-  background-color: #f9fafb;
+button:hover:not(:disabled),
+.btn:hover:not(:disabled),
+.button:hover:not(:disabled) {
+  background-color: var(--vellum-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(128, 147, 241, 0.3);
+}
+
+button:active:not(:disabled),
+.btn:active:not(:disabled),
+.button:active:not(:disabled) {
+  background-color: var(--vellum-primary-active);
+  transform: translateY(0);
 }
 
 button:focus,
-button:focus-visible {
-  outline: 2px solid #4f46e5;
+button:focus-visible,
+.btn:focus,
+.button:focus-visible {
+  outline: 2px solid var(--vellum-primary);
   outline-offset: 2px;
+}
+
+.btn-primary {
+  background-color: var(--vellum-primary) !important;
+  color: white;
+  font-weight: 600;
+}
+
+.btn-secondary {
+  background-color: transparent !important;
+  border: 2px solid var(--vellum-primary) !important;
+  color: var(--vellum-primary) !important;
+}
+
+.btn-secondary:hover {
+  background-color: var(--vellum-primary) !important;
+  color: white !important;
+}
+
+/* Gradient background with grid (landing, login, signup) - full page coverage */
+.gradient-background {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background: linear-gradient(
+    135deg,
+    rgba(179, 136, 235, 0.30) 0%,      /* Purple #B388EB */
+    rgba(174, 184, 254, 0.28) 20%,     /* Purple-blue #AEB8FE */
+    rgba(103, 170, 249, 0.26) 40%,     /* Blue #67AAF9 */
+    rgba(46, 192, 249, 0.22) 60%,      /* Cyan #2EC0F9 */
+    rgba(134, 239, 172, 0.15) 80%,     /* Green */
+    rgba(179, 136, 235, 0.30) 100%     /* Back to purple */
+  );
+  background-size: 400% 400%;
+  animation: gradientShift 20s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Grid overlay - more visible, extends to full content height */
+.gradient-background::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 100%;
+  background-image:
+    linear-gradient(rgba(103, 170, 249, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 170, 249, 0.10) 1px, transparent 1px);
+  background-size: 50px 50px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Content above grid */
+.gradient-background > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Input focus to match purple theme */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--vellum-primary);
+  box-shadow: 0 0 0 3px rgba(128, 147, 241, 0.15);
+}
+
+/* Card style for login/signup and landing cards */
+.card,
+.auth-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(128, 147, 241, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(128, 147, 241, 0.1);
+}
+
+.card:hover,
+.auth-card:hover {
+  box-shadow: 0 12px 48px rgba(128, 147, 241, 0.15);
 }

@@ -1,0 +1,165 @@
+/**
+ * Board tool state: activeTool, selection, pen/eraser/arrow state.
+ */
+import { useState, useCallback, useRef, useMemo } from 'react'
+import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
+import type { PenStyles } from '../components/Canvas/PenStylingToolbar'
+import type { EditingTextState } from '../components/Canvas/TextOverlayTextarea'
+import type { BoardComment } from '../services/comments'
+import type { CurrentPenStroke } from '../components/Canvas/shapes'
+
+const ERASER_CURSOR =
+  "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><circle cx=\"16\" cy=\"16\" r=\"10\" fill=\"none\" stroke=\"%23333\" stroke-width=\"2\"/></svg>') 16 16, crosshair"
+
+const CONNECTION_TOOLS = ['arrow-straight', 'arrow-curved', 'arrow-curved-cw', 'arrow-elbow-bidirectional', 'arrow-double'] as const
+const isConnectionTool = (t: string): t is (typeof CONNECTION_TOOLS)[number] =>
+  CONNECTION_TOOLS.includes(t as (typeof CONNECTION_TOOLS)[number])
+
+export function useBoardTools(canEdit: boolean) {
+  const [activeTool, setActiveToolState] = useState<WhiteboardTool>('pointer')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [editingStickyId, setEditingStickyId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState<EditingTextState | null>(null)
+  const [showGrid, setShowGrid] = useState(() => {
+    try {
+      const v = localStorage.getItem('vellum:showGrid')
+      return v === null ? true : v === 'true'
+    } catch {
+      return true
+    }
+  })
+  const [commentModalPos, setCommentModalPos] = useState<{ x: number; y: number } | null>(null)
+  const [commentThread, setCommentThread] = useState<BoardComment | null>(null)
+  const [pendingEmoji, setPendingEmoji] = useState<string | null>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [currentPenPoints, setCurrentPenPoints] = useState<[number, number][]>([])
+  const [arrowPreview, setArrowPreview] = useState<{
+    startX: number
+    startY: number
+    endX: number
+    endY: number
+    type: string
+  } | null>(null)
+  const [penToolStyles, setPenToolStyles] = useState<PenStyles>({
+    color: '#000000',
+    size: 3,
+    opacity: 100,
+    strokeType: 'solid',
+  })
+  const [highlighterToolStyles, setHighlighterToolStyles] = useState<PenStyles>({
+    color: '#eab308',
+    size: 24,
+    opacity: 35,
+    strokeType: 'solid',
+  })
+  const [eraserSize, setEraserSize] = useState(10)
+
+  const currentPenPointsRef = useRef<[number, number][]>([])
+  const justClosedStickyEditorRef = useRef(false)
+  const justClosedTextEditorRef = useRef(false)
+  const justFinishedArrowDragRef = useRef(false)
+
+  const penDrawingActive = (activeTool === 'pen' || activeTool === 'highlighter') && canEdit
+  const eraserActive = activeTool === 'eraser' && canEdit
+  const arrowToolActive = isConnectionTool(activeTool) && canEdit
+
+  const penStyles: PenStyles =
+    activeTool === 'pen'
+      ? penToolStyles
+      : activeTool === 'highlighter'
+        ? highlighterToolStyles
+        : { ...penToolStyles, size: eraserSize, color: '#000000', opacity: 100, strokeType: 'solid' }
+
+  const currentPenStroke: CurrentPenStroke | null = useMemo(() => {
+    if (!penDrawingActive || currentPenPoints.length < 2) return null
+    return {
+      points: currentPenPoints,
+      color: penStyles.color,
+      strokeWidth: penStyles.size,
+      isHighlighter: activeTool === 'highlighter',
+      opacity: penStyles.opacity / 100,
+      strokeType: penStyles.strokeType,
+    }
+  }, [penDrawingActive, currentPenPoints, penStyles, activeTool])
+
+  const canvasCursor = penDrawingActive || arrowToolActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
+
+  const handleToolSelect = useCallback((tool: WhiteboardTool) => {
+    justClosedStickyEditorRef.current = false
+    justClosedTextEditorRef.current = false
+    setArrowPreview(null)
+    setActiveToolState(tool)
+  }, [])
+
+  const handlePenStylesChange = useCallback(
+    (updates: Partial<PenStyles>) => {
+      if (activeTool === 'pen') {
+        setPenToolStyles((prev) => ({ ...prev, ...updates }))
+      } else if (activeTool === 'highlighter') {
+        setHighlighterToolStyles((prev) => ({ ...prev, ...updates }))
+      } else if (activeTool === 'eraser' && 'size' in updates) {
+        setEraserSize(updates.size ?? eraserSize)
+      }
+    },
+    [activeTool, eraserSize]
+  )
+
+  const handleEmojiSelect = useCallback((emoji: string) => {
+    setPendingEmoji(emoji)
+  }, [])
+
+  const handleGridToggle = useCallback(() => {
+    setShowGrid((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('vellum:showGrid', String(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
+
+  return {
+    activeTool,
+    setActiveTool: setActiveToolState,
+    selectedIds,
+    setSelectedIds,
+    editingStickyId,
+    setEditingStickyId,
+    editingText,
+    setEditingText,
+    showGrid,
+    toggleGrid: handleGridToggle,
+    commentModalPos,
+    setCommentModalPos,
+    commentThread,
+    setCommentThread,
+    pendingEmoji,
+    isChatOpen,
+    setIsChatOpen,
+    shareModalOpen,
+    setShareModalOpen,
+    currentPenPoints,
+    setCurrentPenPoints,
+    currentPenPointsRef,
+    arrowPreview,
+    setArrowPreview,
+    penToolStyles,
+    highlighterToolStyles,
+    eraserSize,
+    penDrawingActive,
+    eraserActive,
+    arrowToolActive,
+    penStyles,
+    currentPenStroke,
+    canvasCursor,
+    handleToolSelect,
+    handlePenStylesChange,
+    handleEmojiSelect,
+    justClosedStickyEditorRef,
+    justClosedTextEditorRef,
+    justFinishedArrowDragRef,
+  }
+}

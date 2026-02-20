@@ -68,6 +68,8 @@ export interface StickyObject extends BoardObjectBase {
   content: string
   fillColor: string
   textStyle: TextStyle
+  /** Rounded corner radius (default 12) for template styling */
+  cornerRadius?: number
 }
 
 /** Base shape styling (black border, transparent fill by default) */
@@ -82,6 +84,8 @@ export interface RectangleObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  /** Rounded corner radius (default 12) for template styling */
+  cornerRadius?: number
 }
 
 /** Circle/ellipse: dimensions = width & height */

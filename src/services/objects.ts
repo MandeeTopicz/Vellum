@@ -53,8 +53,8 @@ export type ObjectUpdates =
 
 /** Input for creating a new object (server adds createdBy, createdAt, updatedAt). Optional fields get defaults. */
 export type CreateObjectInput =
-  | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
-  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE>; cornerRadius?: number }
+  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; cornerRadius?: number }
   | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
   | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; inverted?: boolean }
   | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
@@ -103,6 +103,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         content: (data.content as string) ?? '',
         fillColor: (data.fillColor as string) ?? '#fef08a',
         textStyle: (data.textStyle as StickyObject['textStyle']) ?? DEFAULT_TEXT_STYLE,
+        cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
       }
     case 'rectangle':
       return {
@@ -113,6 +114,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
       }
     case 'circle':
       return {
@@ -308,7 +310,12 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
     defaults.strokeWidth = input.strokeWidth ?? 2
   } else if (input.type === 'text') {
     defaults.content = input.content ?? ''
-    defaults.textStyle = input.textStyle ?? DEFAULT_TEXT_STYLE
+    let textStyle = input.textStyle ?? DEFAULT_TEXT_STYLE
+    const merged = { ...DEFAULT_TEXT_STYLE, ...textStyle }
+    const textAlign =
+      merged.textAlign ??
+      (merged.fontSize >= 24 || (merged.bold && (input.content?.length ?? 0) < 50) ? 'center' : 'left')
+    defaults.textStyle = { ...merged, textAlign }
   }
 
   const docData: Record<string, unknown> = {
@@ -363,7 +370,7 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
   }
   switch (obj.type) {
     case 'sticky':
-      return { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, fillColor: obj.fillColor, textStyle: obj.textStyle }
+      return { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, fillColor: obj.fillColor, textStyle: obj.textStyle, cornerRadius: obj.cornerRadius }
     case 'rectangle':
     case 'circle':
     case 'triangle':
@@ -384,6 +391,7 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
         fillColor: obj.fillColor,
         strokeColor: (obj as { strokeColor?: string }).strokeColor,
         strokeWidth: (obj as { strokeWidth?: number }).strokeWidth,
+        ...(obj.type === 'rectangle' && typeof (obj as { cornerRadius?: number }).cornerRadius === 'number' && { cornerRadius: (obj as { cornerRadius: number }).cornerRadius }),
         ...(obj.type === 'triangle' && 'inverted' in obj && { inverted: obj.inverted }),
         ...(obj.type === 'arrow' && 'direction' in obj && { direction: obj.direction }),
       }

@@ -7,6 +7,7 @@ import type { Board } from '../../types'
 import type { BoardInvite } from '../../types'
 import { useAuth } from '../../context/AuthContext'
 import BoardList from './BoardList'
+import AITemplateGenerator from './AITemplateGenerator'
 import CreateBoardModal from './CreateBoardModal'
 import InviteModal from '../Invite/InviteModal'
 import NotificationsDropdown from './NotificationsDropdown'
@@ -88,7 +89,10 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header className="dashboard-topnav">
-        <span className="dashboard-brand">Vellum</span>
+        <span className="dashboard-brand-wrap">
+          <img src="/letter-v.png" alt="" className="vellum-logo-icon" aria-hidden />
+          <span className="dashboard-brand">Vellum</span>
+        </span>
         <div className="dashboard-topnav-actions">
           <span className="dashboard-user">{displayName}</span>
           <NotificationsDropdown
@@ -115,11 +119,8 @@ export default function Dashboard() {
         className="dashboard-main"
         style={{ left: sidebarExpanded ? 300 : 72 }}
       >
-        <section className="dashboard-ai-placeholder">
-          <h2 className="dashboard-ai-title">Need help drafting a template?</h2>
-          <p className="dashboard-ai-subtext">
-            Under construction – come back for an AI template and feature generator
-          </p>
+        <section className="dashboard-ai-section">
+          <AITemplateGenerator />
         </section>
 
         <section className="dashboard-template-section">

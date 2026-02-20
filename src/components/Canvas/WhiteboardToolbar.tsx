@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import pointerIcon from '../../assets/pointer-icon.png'
-import formatsIcon from '../../assets/formats-icon.png'
 import stickyIcon from '../../assets/sticky-icon.png'
 import templatesIcon from '../../assets/templates-icon.png'
 import textIcon from '../../assets/text-icon.png'
@@ -66,19 +65,16 @@ export default function WhiteboardToolbar({
   onRedo,
   canEdit,
 }: WhiteboardToolbarProps) {
-  const [formatsOpen, setFormatsOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
   const [penOpen, setPenOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const formatsRef = useRef<HTMLDivElement>(null)
   const templatesRef = useRef<HTMLDivElement>(null)
   const shapesRef = useRef<HTMLDivElement>(null)
   const penRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
 
   const closeAllDropdowns = () => {
-    setFormatsOpen(false)
     setTemplatesOpen(false)
     setShapesOpen(false)
     setPenOpen(false)
@@ -88,7 +84,6 @@ export default function WhiteboardToolbar({
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
-        formatsRef.current?.contains(e.target as Node) ||
         templatesRef.current?.contains(e.target as Node) ||
         shapesRef.current?.contains(e.target as Node) ||
         penRef.current?.contains(e.target as Node) ||
@@ -158,26 +153,6 @@ export default function WhiteboardToolbar({
       >
         <img src={pointerIcon} alt="Select" width={20} height={20} />
       </button>
-
-      <div className="toolbar-dropdown" ref={formatsRef}>
-        <button
-          type="button"
-          className="toolbar-icon-btn"
-          onClick={() => {
-            closeAllDropdowns()
-            setFormatsOpen((v) => !v)
-          }}
-          title="Formats & Flows"
-        >
-          <img src={formatsIcon} alt="Formats & Flows" width={20} height={20} />
-        </button>
-        {formatsOpen && (
-          <div className="toolbar-dropdown-panel">
-            <p className="toolbar-coming-soon">Coming Soon</p>
-            <p className="toolbar-dropdown-hint">Doc, Slides, Table, Timeline, Kanban, Flow Chart</p>
-          </div>
-        )}
-      </div>
 
       <div className="toolbar-dropdown" ref={templatesRef}>
         <button

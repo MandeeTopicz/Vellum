@@ -50,13 +50,13 @@
 
 .toolbar-button:hover {
   background: #f3f4f6;
-  border-color: #3b82f6;
+  border-color: #8093F1;
 }
 
 .toolbar-button.active {
   background: #eff6ff;
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: #8093F1;
+  color: #8093F1;
 }
 
 .color-indicator {
@@ -97,7 +97,7 @@
 
 .color-swatch:hover {
   transform: scale(1.1);
-  border-color: #3b82f6;
+  border-color: #8093F1;
 }
 
 .custom-color {
@@ -165,7 +165,7 @@
 
 .font-option.active {
   background: #eff6ff;
-  color: #3b82f6;
+  color: #8093F1;
 }
 
 .font-size-input {

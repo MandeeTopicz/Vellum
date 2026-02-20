@@ -9,6 +9,10 @@ import {
   updateProfile,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   type UserCredential,
 } from 'firebase/auth'
 import {
@@ -99,4 +103,47 @@ export function subscribeToAuth(callback: (user: User | null) => void): () => vo
 
 export function currentUser(): User | null {
   return authInstance.currentUser
+}
+
+const googleProvider = new GoogleAuthProvider()
+
+/**
+ * Sign in with Google (popup). Returns the signed-in user.
+ */
+export async function signInWithGoogle(): Promise<User> {
+  try {
+    const result = await signInWithPopup(authInstance, googleProvider)
+    return result.user
+  } catch (error: unknown) {
+    const code = error && typeof error === 'object' && 'code' in error ? (error as { code: string }).code : ''
+    const message = error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : 'Failed to sign in with Google'
+    if (code === 'auth/popup-blocked') {
+      throw new Error('Popup was blocked. Please allow popups for this site.')
+    }
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw new Error('Sign-in was cancelled.')
+    }
+    throw new Error(message)
+  }
+}
+
+/**
+ * Start Google sign-in with redirect. Call handleGoogleRedirectResult() on app load to complete.
+ */
+export async function signInWithGoogleRedirect(): Promise<void> {
+  await signInWithRedirect(authInstance, googleProvider)
+}
+
+/**
+ * Call on page load to complete redirect sign-in. Returns the user if returning from Google redirect, else null.
+ */
+export async function handleGoogleRedirectResult(): Promise<User | null> {
+  try {
+    const result = await getRedirectResult(authInstance)
+    if (result) return result.user
+    return null
+  } catch (error: unknown) {
+    const message = error && typeof error === 'object' && 'message' in error ? String((error as { message: unknown }).message) : 'Failed to complete Google sign-in'
+    throw new Error(message)
+  }
 }

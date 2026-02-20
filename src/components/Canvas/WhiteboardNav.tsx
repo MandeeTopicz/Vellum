@@ -50,6 +50,7 @@ export default function WhiteboardNav({
     <>
       <nav className="whiteboard-nav-left">
         <Link to="/dashboard" className="whiteboard-nav-brand">
+          <img src="/letter-v.png" alt="" className="vellum-logo-icon vellum-logo-icon-nav" aria-hidden />
           Vellum
         </Link>
         <div className="whiteboard-nav-board-name">

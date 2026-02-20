@@ -19,6 +19,16 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.dashboard-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-brand-wrap .vellum-logo-icon {
+  height: 1.5rem;
+}
+
 .dashboard-brand {
   font-size: 1.35rem;
   font-weight: 700;
@@ -75,31 +85,11 @@
   width: 100%;
 }
 
-.dashboard-ai-placeholder {
-  margin-bottom: 3.5rem;
-  padding: 2.5rem;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  text-align: center;
-  width: 75%;
+.dashboard-ai-section {
+  margin-bottom: 1rem;
+  width: 100%;
   max-width: 900px;
   align-self: center;
-}
-
-.dashboard-ai-title {
-  margin: 0 0 0.75rem;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-
-.dashboard-ai-subtext {
-  margin: 0;
-  font-size: 1rem;
-  color: #6b7280;
-  line-height: 1.5;
 }
 
 .dashboard-template-section {
@@ -136,7 +126,7 @@
 }
 
 .dashboard-template-blank:hover {
-  border-color: #4f46e5;
+  border-color: #8093F1;
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
   background: #fafaff;
 }
@@ -144,7 +134,7 @@
 .dashboard-template-blank-icon {
   font-size: 2.5rem;
   font-weight: 300;
-  color: #4f46e5;
+  color: #8093F1;
   line-height: 1;
 }
 
@@ -233,14 +223,6 @@
 
   .dashboard-sidebar-expanded {
     width: 240px;
-  }
-
-  .dashboard-ai-placeholder {
-    padding: 1.5rem 1rem;
-  }
-
-  .dashboard-ai-title {
-    font-size: 1.25rem;
   }
 
   .dashboard-template-row {

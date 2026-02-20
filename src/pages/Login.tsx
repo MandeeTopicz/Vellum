@@ -1,6 +1,8 @@
-import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { signIn, signUp } from '../services/firebase'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
+import { signIn, signUp, signInWithGoogleRedirect, handleGoogleRedirectResult } from '../services/firebase'
+import GoogleSignInButton from '../components/GoogleSignInButton'
 import './Login.css'
 
 export default function Login() {
@@ -13,6 +15,38 @@ export default function Login() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+
+  useEffect(() => {
+    handleGoogleRedirectResult()
+      .then((user) => {
+        if (user) {
+          const redirectTo = sessionStorage.getItem('vellum:redirectAfterGoogle')
+          if (redirectTo) {
+            sessionStorage.removeItem('vellum:redirectAfterGoogle')
+            navigate(redirectTo, { replace: true })
+          } else {
+            navigate(from, { replace: true })
+          }
+        }
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Google sign-in failed')
+      })
+  }, [navigate, from])
+
+  async function handleGoogleSignIn() {
+    setError(null)
+    setLoading(true)
+    try {
+      sessionStorage.setItem('vellum:redirectAfterGoogle', from)
+      await signInWithGoogleRedirect()
+    } catch (err) {
+      setLoading(false)
+      sessionStorage.removeItem('vellum:redirectAfterGoogle')
+      setError(err instanceof Error ? err.message : 'Failed to sign in with Google')
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,10 +74,23 @@ export default function Login() {
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <h1>Vellum</h1>
+    <div className="login-page gradient-background">
+      <div className="login-card auth-card">
+        <h1>
+          <Link to="/" className="login-vellum-link">
+            <img src="/letter-v.png" alt="" className="vellum-logo-icon vellum-logo-icon-login" aria-hidden />
+            Vellum
+          </Link>
+        </h1>
         <p className="login-subtitle">Real-time collaborative whiteboard</p>
+        <GoogleSignInButton
+          onClick={handleGoogleSignIn}
+          loading={loading}
+          text="Continue with Google"
+        />
+        <div className="login-divider">
+          <span className="login-divider-text">Or continue with email</span>
+        </div>
         <form onSubmit={handleSubmit} className="login-form">
           {isSignUp && (
             <input
@@ -62,14 +109,26 @@ export default function Login() {
             required
             autoComplete="email"
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete={isSignUp ? 'new-password' : 'current-password'}
-          />
+          <div className="login-password-wrap">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete={isSignUp ? 'new-password' : 'current-password'}
+              className="login-password-input"
+            />
+            <button
+              type="button"
+              className="login-password-toggle"
+              onClick={() => setShowPassword((v) => !v)}
+              title={showPassword ? 'Hide password' : 'Show password'}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
           {error && <p className="login-error">{error}</p>}
           <button type="submit" disabled={loading}>
             {loading ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}

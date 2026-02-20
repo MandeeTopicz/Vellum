@@ -1,4 +1,4 @@
-import { memo, useRef, useCallback, useState, useMemo } from 'react'
+import { memo, useRef, useCallback, useState, useMemo, useEffect } from 'react'
 import { Stage, Layer, Group, Rect, Circle } from 'react-konva'
 import type Konva from 'konva'
 import { stageToCanvas } from '../../utils/coordinates'
@@ -98,6 +98,8 @@ interface InfiniteCanvasProps {
   onArrowDragStart?: (pos: CanvasPosition) => void
   onArrowDragMove?: (pos: CanvasPosition) => void
   onArrowDragEnd?: (pos: CanvasPosition) => void
+  /** Called when zoom starts/stops - use to skip heavy work (e.g. cursor sync) during zoom */
+  onZoomingChange?: (zooming: boolean) => void
 }
 
 function InfiniteCanvas({
@@ -123,6 +125,7 @@ function InfiniteCanvas({
   onArrowDragStart,
   onArrowDragMove,
   onArrowDragEnd,
+  onZoomingChange,
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const viewportRef = useRef(viewport)
@@ -133,11 +136,24 @@ function InfiniteCanvas({
   const isPenDrawingRef = useRef(false)
   const isEraserDraggingRef = useRef(false)
   const isArrowDraggingRef = useRef(false)
-  const [isArrowDragging, setIsArrowDragging] = useState(false)
+  const [, setIsArrowDragging] = useState(false)
   const panStartRef = useRef({ x: 0, y: 0, vx: 0, vy: 0, scale: 1 })
   const didPanRef = useRef(false)
   const rafIdRef = useRef<number | null>(null)
   const pendingPanRef = useRef<{ dx: number; dy: number } | null>(null)
+  const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+    },
+    []
+  )
+
+  /** Batch Konva draw calls when viewport changes to avoid redundant redraws */
+  useEffect(() => {
+    stageRef.current?.batchDraw()
+  }, [viewport, width, height])
 
   const getCanvasPos = useCallback(() => {
     const stage = stageRef.current
@@ -153,6 +169,13 @@ function InfiniteCanvas({
       e.evt.preventDefault()
       const stage = stageRef.current
       if (!stage) return
+
+      onZoomingChange?.(true)
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+      zoomTimeoutRef.current = setTimeout(() => {
+        zoomTimeoutRef.current = null
+        onZoomingChange?.(false)
+      }, 200)
 
       const pointer = stage.getPointerPosition()
       if (!pointer) return
@@ -174,7 +197,7 @@ function InfiniteCanvas({
         scale: newScale,
       })
     },
-    [viewport, onViewportChange, editingTextOpen]
+    [viewport, onViewportChange, editingTextOpen, onZoomingChange]
   )
 
   const handleMouseDown = useCallback(

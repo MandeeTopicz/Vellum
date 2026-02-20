@@ -55,13 +55,13 @@
 }
 
 .board-page-denied-actions button:hover {
-  border-color: #4f46e5;
-  color: #4f46e5;
+  border-color: #8093F1;
+  color: #8093F1;
 }
 
 .board-page-btn-primary {
-  background: #4f46e5 !important;
-  border-color: #4f46e5 !important;
+  background: #8093F1 !important;
+  border-color: #8093F1 !important;
   color: #ffffff !important;
 }
 
@@ -97,8 +97,8 @@
 }
 
 .btn-back:hover {
-  border-color: #4f46e5;
-  color: #4f46e5;
+  border-color: #8093F1;
+  color: #8093F1;
 }
 
 .btn-share {
@@ -112,8 +112,8 @@
 }
 
 .btn-share:hover {
-  border-color: #4f46e5;
-  color: #4f46e5;
+  border-color: #8093F1;
+  color: #8093F1;
 }
 
 .board-page-title {

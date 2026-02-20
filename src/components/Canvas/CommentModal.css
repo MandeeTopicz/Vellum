@@ -47,7 +47,7 @@
 
 .comment-modal textarea:focus {
   outline: none;
-  border-color: #4f46e5;
+  border-color: #8093F1;
 }
 
 .comment-modal-actions {
@@ -78,7 +78,7 @@
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 8px;
-  background: #4f46e5;
+  background: #8093F1;
   color: #fff;
   cursor: pointer;
 }

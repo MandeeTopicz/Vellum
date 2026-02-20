@@ -54,7 +54,7 @@ export default function StickyTextEditor({
           height: '100%',
           padding: 8,
           margin: 0,
-          border: '2px solid #4f46e5',
+          border: '2px solid #8093F1',
           borderRadius: 4,
           fontSize: sticky.textStyle.fontSize,
           fontFamily: sticky.textStyle.fontFamily,

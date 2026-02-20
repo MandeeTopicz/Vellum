@@ -55,7 +55,7 @@ export default function CommentLayer({
               width={iconSize}
               height={iconSize}
               fill="#fff"
-              stroke="#4f46e5"
+              stroke="#8093F1"
               strokeWidth={1.5}
               cornerRadius={3}
               listening={false}
@@ -66,7 +66,7 @@ export default function CommentLayer({
               text="T"
               fontSize={12}
               fontStyle="bold"
-              fill="#4f46e5"
+              fill="#8093F1"
               listening={false}
             />
             <Text

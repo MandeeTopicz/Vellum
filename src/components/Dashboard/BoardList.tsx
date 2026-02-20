@@ -17,7 +17,7 @@ interface BoardListProps {
   onCreateBoard: () => void
 }
 
-const COLORS = ['#4f46e5', '#059669', '#dc2626', '#d97706', '#7c3aed', '#0891b2']
+const COLORS = ['#8093F1', '#059669', '#dc2626', '#d97706', '#7c3aed', '#0891b2']
 
 function hashToColor(id: string): string {
   let h = 0

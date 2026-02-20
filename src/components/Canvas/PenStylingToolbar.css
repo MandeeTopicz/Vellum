@@ -46,8 +46,8 @@
 }
 
 .color-button.active {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #3b82f6;
+  border-color: #8093F1;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #8093F1;
 }
 
 .custom-color {
@@ -98,7 +98,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #8093F1;
   cursor: pointer;
 }
 
@@ -107,7 +107,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: #8093F1;
   cursor: pointer;
   border: none;
 }
@@ -153,11 +153,11 @@
 }
 
 .stroke-type-buttons button.active {
-  border-color: #3b82f6;
+  border-color: #8093F1;
   background: #eff6ff;
-  color: #1d4ed8;
+  color: #5e71e9;
 }
 
 .stroke-type-buttons button:hover {
-  border-color: #3b82f6;
+  border-color: #8093F1;
 }
