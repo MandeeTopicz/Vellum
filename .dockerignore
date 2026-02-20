@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+build
+.vite
+.cache
+
+# Firebase / local emulator
+.firebase
+
+# Test artifacts
+playwright-report
+test-results
+
+# System files
+.DS_Store
+
+# Git
+.git
+
+# Environment variables
+.env
+.env.*

@@ -6,6 +6,26 @@ A collaborative infinite whiteboard built with React, Konva, and Firebase.
 
 ---
 
+## Local Development (Docker)
+
+Prerequisite: Docker Desktop installed and running.
+
+Start the app:
+
+```bash
+docker compose up --build
+```
+
+Open: http://localhost:5173
+
+Stop the app:
+
+```bash
+docker compose down
+```
+
+---
+
 ## Setup
 
 ### Prerequisites
