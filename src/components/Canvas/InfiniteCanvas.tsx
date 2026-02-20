@@ -19,7 +19,8 @@ export interface BackgroundClickPayload {
 }
 
 const ZOOM_SENSITIVITY = 0.001
-const MIN_SCALE = 0.0001 // Prevent zero/negative scale (numerical stability)
+const MIN_SCALE = 0.1 // Don't allow zooming out past 10% (prevents lag)
+const MAX_SCALE = 5.0
 const CANVAS_FILL = '#fafafa'
 const GRID_SPACING = 20
 const GRID_DOT_COLOR = 'rgba(0, 0, 0, 0.12)'
@@ -187,7 +188,7 @@ function InfiniteCanvas({
       if (!pointer) return
 
       const scaleBy = 1 - e.evt.deltaY * ZOOM_SENSITIVITY
-      const newScale = Math.max(MIN_SCALE, viewport.scale * scaleBy)
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * scaleBy))
 
       // Zoom centered on mouse cursor: keep point under cursor fixed
       const mousePointTo = {

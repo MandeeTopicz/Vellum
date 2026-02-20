@@ -342,10 +342,16 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
  * @returns Promise that resolves when the update is written
  */
 export async function updateObject(boardId: string, objectId: string, updates: ObjectUpdates): Promise<void> {
-  await updateDoc(objectRef(boardId, objectId), {
-    ...updates,
-    updatedAt: serverTimestamp(),
-  })
+  const docUpdates: Record<string, unknown> = { updatedAt: serverTimestamp() }
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'dimensions' && value && typeof value === 'object' && 'width' in value && 'height' in value) {
+      docUpdates['dimensions.width'] = (value as { width: number }).width
+      docUpdates['dimensions.height'] = (value as { height: number }).height
+    } else if (key !== 'updatedAt') {
+      docUpdates[key] = value
+    }
+  }
+  await updateDoc(objectRef(boardId, objectId), docUpdates)
 }
 
 /**

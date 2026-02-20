@@ -46,12 +46,6 @@ function CursorLayer({
   const [now, setNow] = useState(() => Date.now())
   const animationFrameRef = useRef<number | null>(null)
 
-  const renderCountRef = useRef(0)
-  useEffect(() => {
-    renderCountRef.current += 1
-    console.log('[CursorLayer] Render #', renderCountRef.current, 'Cursors:', interpolatedCursors.size)
-  })
-
   // Subscribe to cursor updates from Firebase
   useEffect(() => {
     if (!boardId) return () => {}
@@ -226,4 +220,14 @@ function CursorLayer({
   )
 }
 
-export default memo(CursorLayer)
+function cursorLayerPropsEqual(prev: CursorLayerProps, next: CursorLayerProps): boolean {
+  return (
+    prev.boardId === next.boardId &&
+    prev.currentUserId === next.currentUserId &&
+    prev.viewport.scale === next.viewport.scale &&
+    prev.viewport.x === next.viewport.x &&
+    prev.viewport.y === next.viewport.y
+  )
+}
+
+export default memo(CursorLayer, cursorLayerPropsEqual)

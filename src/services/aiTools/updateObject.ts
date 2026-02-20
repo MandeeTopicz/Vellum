@@ -74,6 +74,26 @@ export async function executeArrangeInGrid(ctx: ToolExecutionContext): Promise<v
   actions.push(`Arranged ${objs.length} object(s) in ${columns}-column grid`)
 }
 
+/** resizeObject - Resize an existing object by changing its width and height */
+export async function executeResizeObject(ctx: ToolExecutionContext): Promise<void> {
+  const { boardId, args, objectsMap, actions } = ctx
+  const objectId = typeof args.objectId === 'string' ? args.objectId : ''
+  const width = Math.max(20, Number(args.width) || 200)
+  const height = Math.max(20, Number(args.height) || 160)
+  if (!objectId) return
+  const obj = objectsMap.get(objectId)
+  if (!obj) {
+    actions.push(`Object ${objectId} not found`)
+    return
+  }
+  if (!('dimensions' in obj)) {
+    actions.push(`Object ${objectId} cannot be resized (no dimensions)`)
+    return
+  }
+  await updateObject(boardId, objectId, { dimensions: { width, height } })
+  actions.push(`Resized object to ${width}×${height}px`)
+}
+
 /** groupObjects */
 export async function executeGroupObjects(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, objectsMap, actions } = ctx

@@ -5,7 +5,7 @@ export { toContextObject } from './shared'
 export type { ToolExecutionContext, ToolHandler } from './types'
 
 import { executeCreateStickyNote, executeCreateShape, executeCreateTextBox } from './createObject'
-import { executeChangeColor, executeMoveObjects, executeArrangeInGrid, executeGroupObjects } from './updateObject'
+import { executeChangeColor, executeMoveObjects, executeArrangeInGrid, executeGroupObjects, executeResizeObject } from './updateObject'
 import { executeDeleteObjects } from './deleteObject'
 import { executeCreateConnector } from './createConnector'
 import { executeCreateTemplate } from './createTemplate'
@@ -26,6 +26,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   createTextBox: executeCreateTextBox,
   changeColor: executeChangeColor,
   moveObjects: executeMoveObjects,
+  resizeObject: executeResizeObject,
   arrangeInGrid: executeArrangeInGrid,
   groupObjects: executeGroupObjects,
   deleteObjects: executeDeleteObjects,

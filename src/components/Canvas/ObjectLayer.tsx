@@ -1,7 +1,35 @@
 import { memo, useMemo } from 'react'
+import { Rect } from 'react-konva'
 import type { ObjectsMap, BoardObject } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
 import { isResizableType } from './shapes'
+
+const ZOOMED_OUT_THRESHOLD = 0.25
+
+function shouldRenderSimplified(obj: BoardObject, zoomedOut: boolean): boolean {
+  if (!zoomedOut) return false
+  if (obj.type === 'text' || obj.type === 'pen') return true
+  const dims = (obj as { dimensions?: { width: number; height: number } }).dimensions
+  const w = dims?.width ?? 100
+  const h = dims?.height ?? 100
+  return w < 50 || h < 50
+}
+
+function getSimplifiedRectProps(obj: BoardObject): { x: number; y: number; width: number; height: number; fill: string } {
+  const bounds = getObjectBounds(obj)
+  const fill = 'fillColor' in obj && typeof (obj as { fillColor?: string }).fillColor === 'string'
+    ? (obj as { fillColor: string }).fillColor
+    : 'strokeColor' in obj && typeof (obj as { strokeColor?: string }).strokeColor === 'string'
+      ? (obj as { strokeColor: string }).strokeColor
+      : '#ccc'
+  return {
+    x: bounds.left,
+    y: bounds.top,
+    width: bounds.right - bounds.left || 20,
+    height: bounds.bottom - bounds.top || 20,
+    fill,
+  }
+}
 
 /**
  * Get bounding box for any board object (position+dimensions, line start/end, or pen points).
@@ -154,6 +182,7 @@ function ObjectLayerInner({
 
   const resizable = canEdit && onObjectResizeEnd
   const showEffects = viewport.scale > 0.5
+  const isZoomedOut = viewport.scale < ZOOMED_OUT_THRESHOLD
 
   return (
     <>
@@ -172,6 +201,21 @@ function ObjectLayerInner({
       {visibleObjects.map((obj) => {
         const selected = selectedIds.has(obj.objectId)
         const resizableForObj = resizable && isResizableType(obj.type)
+        if (isZoomedOut && shouldRenderSimplified(obj, isZoomedOut)) {
+          const { x, y, width, height, fill } = getSimplifiedRectProps(obj)
+          return (
+            <Rect
+              key={obj.objectId}
+              x={x}
+              y={y}
+              width={width}
+              height={height}
+              fill={fill}
+              listening={false}
+              perfectDrawEnabled={false}
+            />
+          )
+        }
         if (obj.type === 'sticky') {
           return (
             <StickyShape

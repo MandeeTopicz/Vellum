@@ -443,7 +443,6 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   )
 
   const handleCreateMindMap = useCallback(() => {
-    console.log('Create mind map from text box')
   }, [])
 
   const handleCommentSave = useCallback(
@@ -475,7 +474,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   const handleZoomIn = useCallback(() => {
     const center = getViewportCenter()
-    const newScale = Math.min(4, viewport.scale * 1.2)
+    const newScale = Math.min(5, viewport.scale * 1.2)
     const w = dimensions.width
     const h = dimensions.height
     data.setViewport({

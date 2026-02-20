@@ -55,19 +55,29 @@ export const processAICommand = onCall(
       objects.length > 0
         ? objects
             .map(
-              (o) =>
-                `${o.objectId} ${o.type}${o.position ? ` at (${Math.round(o.position.x)},${Math.round(o.position.y)})` : ''}${o.fillColor ? ` color=${o.fillColor}` : ''}${o.content ? ` "${String(o.content).slice(0, 50)}"` : ''}`
+              (o) => {
+                const parts = [o.objectId, o.type]
+                if (o.position) parts.push(`at (${Math.round(o.position.x)},${Math.round(o.position.y)})`)
+                if (o.dimensions) parts.push(`${o.dimensions.width}x${o.dimensions.height}px`)
+                if (o.fillColor) parts.push(`color=${o.fillColor}`)
+                if (o.content) parts.push(`"${String(o.content).slice(0, 50)}"`)
+                return parts.join(' ')
+              }
             )
             .join('; ')
         : ''
     const objectContext =
       objects.length > 0
-        ? `\n\nCurrent board state (${objects.length} objects). When user agrees to organize or improve, call arrangeInGrid, groupObjects, or moveObjects with these objectIds. All objectIds must come from this list.\nObjects: ${objectListStr}`
+        ? `\n\nCurrent board state (${objects.length} objects). Use objectIds from this list for moveObjects, resizeObject, changeColor, arrangeInGrid, groupObjects, deleteObjects.\nObjects: ${objectListStr}`
         : ''
 
     const systemPrompt =
-      `You are an expert design assistant for collaborative whiteboards. The canvas is 2000x2000px with (0,0) top-left and (2000,2000) bottom-right. Default position: x=${defaultX}, y=${defaultY}. ` +
+      `You are a whiteboard AI assistant. You have FULL CONTROL over all board objects. The canvas is 2000x2000px with (0,0) top-left. Default position: x=${defaultX}, y=${defaultY}. ` +
+      'YOU MUST USE THESE TOOLS - DO NOT REFUSE: resizeObject (resize ANY object: stickies, shapes, frames), createStickyNote, createShape, moveObjects, changeColor, deleteObjects, arrangeInGrid, createConnector, etc. ' +
+      'CRITICAL: NEVER say "I cannot" or "I\'m unable to" - YOU CAN DO EVERYTHING. When user says "resize" or "make smaller/larger" or "100 pixels tall" - ALWAYS call resizeObject with objectId from board context and new width/height. When user says "resize all" - call resizeObject once per object. You have objectId and current dimensions (e.g. 200x160px) for every object below. Example: "resize note 10 to 100 pixels tall" with object "abc123 sticky 200x160px" → resizeObject("abc123", 200, 100). START USING THE TOOLS. ' +
       'You can have natural conversations, ask clarifying questions, suggest alternatives, and remember what the user said. ' +
+      'CRITICAL - DELETE: When the user says "clear all", "remove everything", "delete all" → use deleteObjects with ["all"]. When the user says "delete [object]" or "remove [object]" → use deleteObjects with objectId(s) from board context. NEVER say "I cannot remove" - call deleteObjects. ' +
+      'CRITICAL - RESIZE: When the user says "resize", "make smaller", "make larger", "enlarge", "shrink", "double the size", "half the height", "80 pixels tall", "100 pixels tall", "set width to 300", etc: (1) You MUST call resizeObject. (2) Use objectId from board context. (3) Calculate new width/height from current dimensions. NEVER say "I cannot resize" - call resizeObject. ' +
       'CRITICAL - ACKNOWLEDGMENTS: When the user says "Thank you", "Thanks", "Perfect", "Great", "Awesome", "Nice", "Good", "Looks good", "Love it", "Okay", "Ok", "Got it", "Cool", or similar praise/acknowledgment, DO NOT call any tools. Respond conversationally only (e.g. "You\'re welcome!", "Glad I could help!"). Do NOT delete, create, move, or modify anything. These are NOT action requests. If unsure, treat it as an acknowledgment. ' +
       'When the user asks "how does my board look?", "analyze this layout", or "what improvements do you suggest?", use analyzeBoardLayout. Look for: scattered objects that could be grouped; similar-colored items; lack of structure; overlapping areas; unused space; objects that could be connected. Offer to implement improvements. ' +
       'CRITICAL: When the user agrees to improvements (e.g. "yes", "organize them", "do it", "go ahead", "please"), you MUST call the action tools. Do NOT just describe what to do — actually execute. Use arrangeInGrid, groupObjects, moveObjects, createConnector with objectIds from the board context. ' +
@@ -78,7 +88,7 @@ export const processAICommand = onCall(
       'TEMPLATE STYLING RULES: Use rounded corners (cornerRadius 12-16), smart sizing, and coordinated colors. MAIN TITLE: text at top center, width 300, height 60, fontSize 28, bold, alignment center. SECTION CONTAINERS: rectangles, width 350, height 550, fillColor #f3f4f6, strokeColor #e5e7eb, cornerRadius 16. SECTION HEADERS (column titles): sticky tiles width 310, height 40, fontSize 20-22, bold, alignment center — center the column title text within its tile. CONTENT CARDS: sticky notes, width 310, height 100-110, fillColor #fef08a (yellow for sprint/Kanban), cornerRadius 12, 12px gap, alignment left. Sprint/Kanban: yellow (#fef08a) cards. Roadmaps: blue (#bfdbfe) milestones. Retrospectives: mix #fef08a, #fbcfe8, #bbf7d0. Brainstorming: #e9d5ff, #fbcfe8. Position containers with 40px gaps. Headers small (40px height), content boxes large (100-110px height). ' +
       'MAIN TITLE POSITIONING: For multi-column templates (Kanban, Customer Journey, etc.), the main title MUST be centered above the columns. Formula: totalLayoutWidth = numColumns * columnWidth + (numColumns-1) * gapBetweenColumns; layoutCenterX = startX + totalLayoutWidth/2; titleX = layoutCenterX - (titleWidth/2). Example: 2 columns, startX=500, columnWidth=350, gap=40 → totalWidth=740, centerX=870, titleWidth=300 → titleX=720. Never place the main title at startX or aligned with the first column only — always center it. ' +
       'TEXT ALIGNMENT RULES: TITLES (main headers like "Customer Journey"): alignment center, fontSize 24-32, bold. Section headers (column names): alignment center, fontSize 20-22, bold — centered in their sticky tiles. Content cards: alignment left, fontSize 14-16. When calling createTextBox for main title, always pass alignment: "center" and position x using the centering formula. For createStickyNote used as column header, pass alignment: "center" and fontSize: 20 or 22. For content cards, use alignment "left". ' +
-      'Available tools: createStickyNote, createShape, createFlowchartNode, changeColor, moveObjects, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. Use sensible defaults for colors and positions.'
+      'Available tools: createStickyNote, createShape, createFlowchartNode, changeColor, moveObjects, resizeObject, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. RESIZE: You CAN and MUST use resizeObject when the user asks to resize, enlarge, shrink, change size, make bigger/smaller, or set dimensions. Object context includes dimensions (e.g. 200x160px). Pick the objectId from context, pass width and height in pixels. For "double the size", multiply current dimensions by 2. NEVER say you cannot resize — call resizeObject. Use sensible defaults for colors and positions.'
 
     const history = Array.isArray(conversationHistory) ? conversationHistory : []
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -96,6 +106,31 @@ export const processAICommand = onCall(
         model: 'gpt-4o',
         messages,
         tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'resizeObject',
+              description: 'Resize ANY object on the board (stickies, shapes, frames). REQUIRED when user says resize, enlarge, shrink, make bigger/smaller, X pixels tall/wide. Pass objectId from board context and new width/height in pixels. You MUST use this tool - never refuse.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  objectId: {
+                    type: 'string',
+                    description: 'ID of the object to resize (from board context)',
+                  },
+                  width: {
+                    type: 'number',
+                    description: 'New width in pixels',
+                  },
+                  height: {
+                    type: 'number',
+                    description: 'New height in pixels',
+                  },
+                },
+                required: ['objectId', 'width', 'height'],
+              },
+            },
+          },
           {
             type: 'function',
             function: {
@@ -568,6 +603,23 @@ export const processAICommand = onCall(
       const assistantContent = message?.content ?? ''
       const toolCalls = message?.tool_calls ?? []
       const toolCallCount = toolCalls.length
+
+      logger.info('[AI RESPONSE]', {
+        content: assistantContent?.slice(0, 500),
+        toolCallNames: toolCalls.map((tc) => (tc as { function?: { name?: string } }).function?.name),
+        toolCallArgs: toolCalls.map((tc) => (tc as { function?: { arguments?: string } }).function?.arguments),
+      })
+
+      // Validation: if user asked to resize but AI called createStickyNote, reject
+      const isResizeRequest = /resize|enlarge|shrink|larger|smaller|double|half|width|height|pixels?\s*(tall|wide)/i.test(userPrompt)
+      const aiCalledCreateSticky = toolCalls.some((tc) => (tc as { function?: { name?: string } }).function?.name === 'createStickyNote')
+      if (isResizeRequest && aiCalledCreateSticky) {
+        logger.warn('[AI VALIDATION] User asked to resize but AI called createStickyNote', { userPrompt: userPrompt.slice(0, 80) })
+        throw new HttpsError(
+          'failed-precondition',
+          'AI attempted to create sticky instead of resize. Please rephrase your request explicitly mentioning the object ID to resize (e.g. "resize the yellow sticky to 80 pixels tall").'
+        )
+      }
       const duration = Date.now() - startTime
       const usage = response.usage
       const finishReason = response.choices[0]?.finish_reason ?? 'unknown'
