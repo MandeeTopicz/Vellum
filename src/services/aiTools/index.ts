@@ -10,6 +10,7 @@ import { executeDeleteObjects } from './deleteObject'
 import { executeCreateConnector } from './createConnector'
 import { executeCreateTemplate } from './createTemplate'
 import { executeGetBoardState, executeSuggestLayout, executeAnalyzeBoardLayout } from './analyzeBoardTool'
+import { executeGetBoardSummary } from './getBoardSummary'
 import { executeCreateFlowchartNode } from './createFlowchartNode'
 import { executeCreateFlowchart } from './createFlowchart'
 import { executeCreateOrgChart } from './createOrgChart'
@@ -44,6 +45,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   createStickyGrid: executeCreateStickyGrid,
   duplicateObjects: executeDuplicateObjects,
   getBoardState: executeGetBoardState,
+  getBoardSummary: executeGetBoardSummary,
   suggestLayout: executeSuggestLayout,
   analyzeBoardLayout: executeAnalyzeBoardLayout,
 }

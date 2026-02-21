@@ -40,11 +40,22 @@ function objectRef(boardId: string, objectId: string) {
   return doc(db, 'boards', boardId, OBJECTS, objectId)
 }
 
+/** Position update for drag (supports nesting: parentId, localX, localY) */
+export type PositionUpdate = {
+  objectId: string
+  x: number
+  y: number
+  parentId?: string | null
+  localX?: number
+  localY?: number
+}
+
 /** Partial updates allowed for updateObject */
 export type ObjectUpdates =
   | { position: { x: number; y: number } }
+  | { parentId: string | null; localX: number; localY: number }
   | { dimensions: { width: number; height: number } }
-  | { position: { x: number; y: number }; dimensions: { width: number; height: number } }
+  | { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
   | { start: { x: number; y: number }; end: { x: number; y: number } }
   | { content: string }
   | { fillColor: string }
@@ -55,9 +66,11 @@ export type ObjectUpdates =
   | { emoji: string; fontSize?: number }
   | { textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { displayOrder?: number }
+  | { rotation: number }
+  | { linkUrl: string | null }
 
 /** Input for creating a new object (server adds createdBy, createdAt, updatedAt). Optional fields get defaults. */
-export type CreateObjectInput =
+export type CreateObjectInput = (
   | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE>; cornerRadius?: number; opacity?: number }
   | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; cornerRadius?: number }
   | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
@@ -78,6 +91,24 @@ export type CreateObjectInput =
   | { type: 'pen'; points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
+  | { type: 'frame'; position: Point; dimensions: { width: number; height: number }; title?: string }
+) & { rotation?: number; linkUrl?: string | null }
+
+/** @internal Adds nesting, rotation, and linkUrl to position-based objects (backward compat) */
+function withNestingFields<T extends BoardObject & { position: { x: number; y: number } }>(
+  data: Record<string, unknown>,
+  obj: T
+): BoardObject {
+  const pos = data.position as { x: number; y: number }
+  return {
+    ...obj,
+    parentId: data.parentId !== undefined ? (data.parentId as string | null) : null,
+    localX: typeof data.localX === 'number' ? data.localX : pos?.x ?? 0,
+    localY: typeof data.localY === 'number' ? data.localY : pos?.y ?? 0,
+    rotation: typeof data.rotation === 'number' ? data.rotation : undefined,
+    linkUrl: data.linkUrl != null ? (data.linkUrl as string | null) : undefined,
+  } as BoardObject
+}
 
 /** @internal Converts Firestore timestamp-like object to Timestamp */
 function reviveTimestamp(val: unknown): Timestamp {
@@ -98,10 +129,11 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
     createdAt: reviveTimestamp(data.createdAt),
     updatedAt: reviveTimestamp(data.updatedAt),
     displayOrder: typeof data.displayOrder === 'number' ? data.displayOrder : undefined,
+    linkUrl: data.linkUrl != null ? (data.linkUrl as string | null) : undefined,
   }
   switch (type) {
     case 'sticky':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'sticky',
         position: data.position as { x: number; y: number },
@@ -111,9 +143,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         textStyle: (data.textStyle as StickyObject['textStyle']) ?? DEFAULT_TEXT_STYLE,
         cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-      }
+      })
     case 'rectangle':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'rectangle',
         position: data.position as { x: number; y: number },
@@ -125,9 +157,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
-      }
+      })
     case 'circle':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'circle',
         position: data.position as { x: number; y: number },
@@ -137,9 +169,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeWidth: (data.strokeWidth as number) ?? 2,
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-      }
+      })
     case 'triangle':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'triangle',
         position: data.position as { x: number; y: number },
@@ -150,7 +182,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         inverted: (data.inverted as boolean) ?? false,
-      }
+      })
     case 'line':
       return {
         ...base,
@@ -167,7 +199,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
     case 'pentagon':
     case 'hexagon':
     case 'octagon':
-      return {
+      return withNestingFields(data, {
         ...base,
         type,
         position: data.position as { x: number; y: number },
@@ -177,9 +209,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeWidth: (data.strokeWidth as number) ?? 2,
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-      }
+      })
     case 'star':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'star',
         position: data.position as { x: number; y: number },
@@ -189,9 +221,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeWidth: (data.strokeWidth as number) ?? 2,
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-      }
+      })
     case 'arrow':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'arrow',
         position: data.position as { x: number; y: number },
@@ -202,12 +234,12 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         direction: (data.direction as 'right' | 'left') ?? 'right',
-      }
+      })
     case 'plus':
     case 'tab-shape':
     case 'trapezoid':
     case 'circle-cross':
-      return {
+      return withNestingFields(data, {
         ...base,
         type,
         position: data.position as { x: number; y: number },
@@ -217,9 +249,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeWidth: (data.strokeWidth as number) ?? 2,
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-      }
+      })
     case 'parallelogram':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'parallelogram',
         position: data.position as { x: number; y: number },
@@ -230,9 +262,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         shapeKind: (data.shapeKind as 'right' | 'left') ?? 'right',
-      }
+      })
     case 'cylinder':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'cylinder',
         position: data.position as { x: number; y: number },
@@ -243,7 +275,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         shapeKind: (data.shapeKind as 'vertical' | 'horizontal') ?? 'vertical',
-      }
+      })
     case 'pen': {
       const flat = (data.points as number[]) ?? []
       const points: [number, number][] = []
@@ -262,22 +294,30 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
       } as PenObject
     }
     case 'text':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'text',
         position: data.position as { x: number; y: number },
         dimensions: data.dimensions as { width: number; height: number },
         content: (data.content as string) ?? '',
         textStyle: (data.textStyle as TextObject['textStyle']) ?? DEFAULT_TEXT_STYLE,
-      }
+      })
     case 'emoji':
-      return {
+      return withNestingFields(data, {
         ...base,
         type: 'emoji',
         position: data.position as { x: number; y: number },
         emoji: (data.emoji as string) ?? '😀',
         fontSize: data.fontSize as number | undefined,
-      }
+      })
+    case 'frame':
+      return withNestingFields(data, {
+        ...base,
+        type: 'frame',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        title: (data.title as string) ?? undefined,
+      } as BoardObject & { position: { x: number; y: number } })
     default:
       throw new Error(`Unknown object type: ${(base as { type: string }).type}`)
   }
@@ -376,6 +416,66 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
   return ref.id
 }
 
+const BATCH_WRITE_LIMIT = 500
+
+/**
+ * Batch-creates multiple objects. Uses Firestore writeBatch for efficiency.
+ * @param boardId - The board ID
+ * @param inputs - Array of CreateObjectInput (stickies, shapes, etc.)
+ * @returns Promise resolving to array of created object IDs
+ */
+export async function batchCreateObjects(boardId: string, inputs: CreateObjectInput[]): Promise<string[]> {
+  const user = auth.currentUser
+  if (!user) throw new Error('Not authenticated')
+  if (inputs.length === 0) return []
+
+  const ids: string[] = []
+  for (let i = 0; i < inputs.length; i += BATCH_WRITE_LIMIT) {
+    const batch = writeBatch(db)
+    const chunk = inputs.slice(i, i + BATCH_WRITE_LIMIT)
+    for (const input of chunk) {
+      const ref = doc(objectsCol(boardId))
+      ids.push(ref.id)
+      const defaults: Record<string, unknown> = {}
+      if (input.type === 'sticky') {
+        defaults.content = input.content ?? ''
+        defaults.textStyle = { ...DEFAULT_TEXT_STYLE, ...input.textStyle }
+        defaults.fillColor = input.fillColor ?? '#fef08a'
+      } else if (
+        input.type === 'rectangle' || input.type === 'circle' || input.type === 'triangle' ||
+        input.type === 'diamond' || input.type === 'star' || input.type === 'pentagon' ||
+        input.type === 'hexagon' || input.type === 'octagon' || input.type === 'arrow' ||
+        input.type === 'plus' || input.type === 'parallelogram' || input.type === 'cylinder' ||
+        input.type === 'tab-shape' || input.type === 'trapezoid' || input.type === 'circle-cross'
+      ) {
+        defaults.fillColor = input.fillColor ?? 'transparent'
+        defaults.strokeColor = (input as { strokeColor?: string }).strokeColor ?? '#000000'
+        defaults.strokeWidth = (input as { strokeWidth?: number }).strokeWidth ?? 2
+      } else if (input.type === 'text') {
+        defaults.content = input.content ?? ''
+        defaults.textStyle = { ...DEFAULT_TEXT_STYLE, ...input.textStyle }
+      }
+      const docData: Record<string, unknown> = {
+        ...input,
+        ...defaults,
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+      if (input.type === 'pen') {
+        docData.points = input.points.flat()
+      }
+      const sanitized: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(docData)) {
+        if (v !== undefined) sanitized[k] = v
+      }
+      batch.set(ref, sanitized)
+    }
+    await batch.commit()
+  }
+  return ids
+}
+
 /**
  * Updates an existing object with partial changes.
  * @param boardId - The board ID
@@ -398,19 +498,32 @@ export async function updateObject(boardId: string, objectId: string, updates: O
 
 /**
  * Batch update positions for multiple objects. Use for drag-end batching.
+ * Supports nesting: when parentId/localX/localY provided, writes those; otherwise position.
  */
 export async function batchUpdatePositions(
   boardId: string,
-  updates: Array<{ objectId: string; x: number; y: number }>
+  updates: PositionUpdate[]
 ): Promise<void> {
   if (updates.length === 0) return
   const batch = writeBatch(db)
-  for (const { objectId, x, y } of updates) {
-    batch.update(objectRef(boardId, objectId), {
-      'position.x': x,
-      'position.y': y,
-      updatedAt: serverTimestamp(),
-    })
+  for (const u of updates) {
+    const { objectId, x, y, parentId, localX, localY } = u
+    if (typeof parentId !== 'undefined') {
+      batch.update(objectRef(boardId, objectId), {
+        parentId: parentId ?? null,
+        localX: localX ?? x,
+        localY: localY ?? y,
+        'position.x': localX ?? x,
+        'position.y': localY ?? y,
+        updatedAt: serverTimestamp(),
+      })
+    } else {
+      batch.update(objectRef(boardId, objectId), {
+        'position.x': x,
+        'position.y': y,
+        updatedAt: serverTimestamp(),
+      })
+    }
   }
   await batch.commit()
 }
@@ -423,6 +536,55 @@ export async function batchUpdatePositions(
  */
 export async function deleteObject(boardId: string, objectId: string): Promise<void> {
   await deleteDoc(objectRef(boardId, objectId))
+}
+
+/**
+ * Deletes all objects on a board. Uses Firestore as source of truth.
+ * @param boardId - The board ID
+ * @returns Promise resolving to the number of objects deleted
+ */
+export async function deleteAllObjects(boardId: string): Promise<number> {
+  const snapshot = await getDocs(objectsCol(boardId))
+  const ids = snapshot.docs.map((d) => d.id)
+  if (ids.length === 0) return 0
+  const BATCH_SIZE = 500
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = writeBatch(db)
+    const chunk = ids.slice(i, i + BATCH_SIZE)
+    for (const id of chunk) {
+      batch.delete(objectRef(boardId, id))
+    }
+    await batch.commit()
+  }
+  return ids.length
+}
+
+/**
+ * Returns board summary: total count and counts by type. Uses Firestore as source of truth.
+ * @param boardId - The board ID
+ */
+export async function getBoardSummary(boardId: string): Promise<{ totalCount: number; byType: Record<string, number> }> {
+  const snapshot = await getDocs(objectsCol(boardId))
+  const byType: Record<string, number> = {}
+  for (const d of snapshot.docs) {
+    const type = (d.data().type as string) ?? 'unknown'
+    byType[type] = (byType[type] ?? 0) + 1
+  }
+  return { totalCount: snapshot.size, byType }
+}
+
+/** @internal Appends rotation and linkUrl to doc if present on object */
+function withRotationAndLink<T extends Record<string, unknown>>(
+  doc: T,
+  obj: BoardObject
+): T & { rotation?: number; linkUrl?: string | null } {
+  const rot = (obj as { rotation?: number }).rotation
+  const link = (obj as { linkUrl?: string | null }).linkUrl
+  return {
+    ...doc,
+    ...(typeof rot === 'number' && { rotation: rot }),
+    ...(link !== undefined && { linkUrl: link }),
+  } as T & { rotation?: number; linkUrl?: string | null }
 }
 
 /**
@@ -439,7 +601,10 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
   }
   switch (obj.type) {
     case 'sticky':
-      return { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, fillColor: obj.fillColor, textStyle: obj.textStyle, cornerRadius: obj.cornerRadius }
+      return withRotationAndLink(
+        { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, fillColor: obj.fillColor, textStyle: obj.textStyle, cornerRadius: obj.cornerRadius },
+        obj
+      )
     case 'rectangle':
     case 'circle':
     case 'triangle':
@@ -453,60 +618,91 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
     case 'tab-shape':
     case 'trapezoid':
     case 'circle-cross':
-      return {
-        ...base,
-        position: obj.position,
-        dimensions: obj.dimensions,
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
         fillColor: obj.fillColor,
         strokeColor: (obj as { strokeColor?: string }).strokeColor,
         strokeWidth: (obj as { strokeWidth?: number }).strokeWidth,
         ...(obj.type === 'rectangle' && typeof (obj as { cornerRadius?: number }).cornerRadius === 'number' && { cornerRadius: (obj as { cornerRadius: number }).cornerRadius }),
         ...(obj.type === 'triangle' && 'inverted' in obj && { inverted: obj.inverted }),
         ...(obj.type === 'arrow' && 'direction' in obj && { direction: obj.direction }),
-      }
+        },
+        obj
+      )
     case 'parallelogram':
-      return {
-        ...base,
-        position: obj.position,
-        dimensions: obj.dimensions,
-        fillColor: obj.fillColor,
-        strokeColor: obj.strokeColor,
-        strokeWidth: obj.strokeWidth,
-        shapeKind: obj.shapeKind,
-      }
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          fillColor: obj.fillColor,
+          strokeColor: obj.strokeColor,
+          strokeWidth: obj.strokeWidth,
+          shapeKind: obj.shapeKind,
+        },
+        obj
+      )
     case 'cylinder':
-      return {
-        ...base,
-        position: obj.position,
-        dimensions: obj.dimensions,
-        fillColor: obj.fillColor,
-        strokeColor: obj.strokeColor,
-        strokeWidth: obj.strokeWidth,
-        shapeKind: obj.shapeKind,
-      }
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          fillColor: obj.fillColor,
+          strokeColor: obj.strokeColor,
+          strokeWidth: obj.strokeWidth,
+          shapeKind: obj.shapeKind,
+        },
+        obj
+      )
     case 'line':
-      return {
-        ...base,
-        start: obj.start,
-        end: obj.end,
-        strokeColor: obj.strokeColor,
-        strokeWidth: obj.strokeWidth,
-        connectionType: obj.connectionType ?? 'line',
-      }
+      return withRotationAndLink(
+        {
+          ...base,
+          start: obj.start,
+          end: obj.end,
+          strokeColor: obj.strokeColor,
+          strokeWidth: obj.strokeWidth,
+          connectionType: obj.connectionType ?? 'line',
+        },
+        obj
+      )
     case 'pen':
-      return {
-        ...base,
-        points: obj.points.flat(),
-        color: obj.color,
-        strokeWidth: obj.strokeWidth,
-        isHighlighter: obj.isHighlighter,
-        opacity: obj.opacity,
-        strokeType: obj.strokeType ?? 'solid',
-      }
+      return withRotationAndLink(
+        {
+          ...base,
+          points: obj.points.flat(),
+          color: obj.color,
+          strokeWidth: obj.strokeWidth,
+          isHighlighter: obj.isHighlighter,
+          opacity: obj.opacity,
+          strokeType: obj.strokeType ?? 'solid',
+        },
+        obj
+      )
     case 'text':
-      return { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, textStyle: obj.textStyle }
+      return withRotationAndLink(
+        { ...base, position: obj.position, dimensions: obj.dimensions, content: obj.content, textStyle: obj.textStyle },
+        obj
+      )
     case 'emoji':
-      return { ...base, position: obj.position, emoji: obj.emoji, fontSize: obj.fontSize }
+      return withRotationAndLink(
+        { ...base, position: obj.position, emoji: obj.emoji, fontSize: obj.fontSize },
+        obj
+      )
+    case 'frame':
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          title: (obj as { title?: string }).title,
+        },
+        obj
+      )
     default:
       throw new Error(`Unknown object type: ${(obj as { type: string }).type}`)
   }

@@ -5,7 +5,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { firebaseApp } from './firebase'
 import type { CreateObjectInput } from './objects'
-import { deleteObject, batchUpdatePositions } from './objects'
+import { deleteAllObjects, batchUpdatePositions } from './objects'
 import type { BoardObject } from '../types'
 import { toContextObject, TOOL_HANDLERS, executeCreateStickyGrid } from './aiTools'
 
@@ -78,7 +78,7 @@ function parseStickyGridIntent(prompt: string): StickyGridParse | null {
     }
   }
 
-  // "10x10" / "10 x 10" / "4x6"
+  // "10x10" / "10 x 10" / "4x6" / "10 by 10"
   if (rows == null || cols == null) {
     const gridMatch = lower.match(/(\d+)\s*[x×]\s*(\d+)/)
     if (gridMatch) {
@@ -86,6 +86,13 @@ function parseStickyGridIntent(prompt: string): StickyGridParse | null {
       const b = Math.floor(Number(gridMatch[2]))
       rows = a
       cols = b
+    }
+  }
+  if (rows == null || cols == null) {
+    const byMatch = lower.match(/(\d+)\s+by\s+(\d+)/)
+    if (byMatch) {
+      rows = Math.floor(Number(byMatch[1]))
+      cols = Math.floor(Number(byMatch[2]))
     }
   }
 
@@ -197,11 +204,8 @@ export async function processAICommand(
   const stripped = lowerPrompt.replace(/[!?.]+$/, '').trim()
 
   if (isClearBoardIntent(userPrompt)) {
-    const ids = objectsList.map((o) => o.objectId)
-    for (const objectId of ids) {
-      await deleteObject(boardId, objectId)
-    }
-    const msg = `Deleted ${ids.length} object(s)`
+    const deleted = await deleteAllObjects(boardId)
+    const msg = `Deleted ${deleted} object(s)`
     actions.push(msg)
     return { success: true, message: msg, actions }
   }

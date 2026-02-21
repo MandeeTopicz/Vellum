@@ -8,7 +8,7 @@ import type { Viewport } from '../InfiniteCanvas'
 import { stageToCanvas } from '../../../utils/coordinates'
 
 export type ObjectResizeUpdates =
-  | { position: { x: number; y: number }; dimensions: { width: number; height: number } }
+  | { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
   | { start: { x: number; y: number }; end: { x: number; y: number } }
 
 /** Minimum dimensions when resizing shapes */
@@ -20,7 +20,7 @@ export const MIN_LINE_HIT = 36
 export const RESIZABLE_TYPES = new Set([
   'sticky', 'rectangle', 'circle', 'triangle', 'line', 'diamond', 'star',
   'pentagon', 'hexagon', 'octagon', 'arrow', 'plus', 'parallelogram',
-  'cylinder', 'tab-shape', 'trapezoid', 'circle-cross', 'text',
+  'cylinder', 'tab-shape', 'trapezoid', 'circle-cross', 'text', 'frame',
 ])
 
 export function isResizableType(type: string): boolean {
@@ -35,8 +35,10 @@ export interface BaseShapeProps {
   isPointerTool: boolean
   /** When false, disable shadows/effects for performance when zoomed out */
   showEffects?: boolean
+  /** Override position for rendering (e.g. resolved world coords when nested in frame) */
+  displayPosition?: { x: number; y: number }
   onObjectDragEnd: (objectId: string, x: number, y: number) => void
-  onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void
+  onObjectClick: (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => void
   onObjectResizeEnd?: (objectId: string, updates: ObjectResizeUpdates) => void
 }
 
@@ -50,7 +52,7 @@ export function shapeHandlers(
   canEdit: boolean,
   selected: boolean,
   onObjectDragEnd: (objectId: string, x: number, y: number) => void,
-  onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void,
+  onObjectClick: (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => void,
   isPointerTool: boolean
 ) {
   return {
@@ -63,7 +65,7 @@ export function shapeHandlers(
       onObjectDragEnd(objectId, canvasPos.x, canvasPos.y)
       node.position({ x: canvasPos.x, y: canvasPos.y })
     },
-    onClick: (e: { evt: MouseEvent }) => onObjectClick(objectId, { ctrlKey: e.evt.ctrlKey }),
+    onClick: (e: { evt: MouseEvent }) => onObjectClick(objectId, { ctrlKey: e.evt.ctrlKey, metaKey: e.evt.metaKey }),
   }
 }
 

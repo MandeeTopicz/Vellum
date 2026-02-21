@@ -26,8 +26,10 @@ export function PlusShape({
   onObjectDragEnd,
   onObjectClick,
   onObjectResizeEnd,
+  displayPosition,
 }: PlusShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
+  const pos = displayPosition ?? obj.position ?? { x: 0, y: 0 }
   const trRef = useRef<Konva.Transformer>(null)
 
   const w = obj.dimensions?.width ?? 100
@@ -79,8 +81,8 @@ export function PlusShape({
     <>
       <Group
         ref={groupRef}
-        x={obj.position?.x ?? 0}
-        y={obj.position?.y ?? 0}
+        x={pos.x}
+        y={pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}

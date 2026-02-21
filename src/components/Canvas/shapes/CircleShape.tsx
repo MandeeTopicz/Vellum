@@ -1,8 +1,9 @@
 import { useRef } from 'react'
 import { Group, Ellipse, Transformer } from 'react-konva'
-import Konva from 'konva'
+import type Konva from 'konva'
 import type { CircleObject } from '../../../types/objects'
 import type { BaseShapeProps } from './shared'
+import { stageToCanvas } from '../../../utils/coordinates'
 import {
   shapeHandlers,
   useShapeTransform,
@@ -23,9 +24,14 @@ export function CircleShape({
   onObjectDragEnd,
   onObjectClick,
   onObjectResizeEnd,
+  displayPosition,
 }: CircleShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
+  const pos = displayPosition ?? obj.position
+  const w = obj.dimensions?.width ?? 100
+  const h = obj.dimensions?.height ?? 100
+  const rotation = (obj as { rotation?: number }).rotation ?? 0
 
   const hasResizeHandler = !!onObjectResizeEnd
   useShapeTransform(selected, hasResizeHandler, trRef, groupRef)
@@ -35,11 +41,11 @@ export function CircleShape({
     const node = groupRef.current
     const scaleX = node.scaleX()
     const scaleY = node.scaleY()
+    const rot = node.rotation()
     node.scaleX(1)
     node.scaleY(1)
+    node.rotation(0)
 
-    const w = obj.dimensions?.width ?? 100
-    const h = obj.dimensions?.height ?? 100
     const newWidth = Math.max(MIN_SIZE, w * scaleX)
     const newHeight = Math.max(MIN_SIZE, h * scaleY)
     const nrx = newWidth / 2
@@ -49,25 +55,34 @@ export function CircleShape({
     if (ellipse) {
       ellipse.setAttrs({ x: nrx, y: nry, radiusX: nrx, radiusY: nry })
     }
+    node.offsetX(nrx)
+    node.offsetY(nry)
+    node.rotation(rot)
+    const cx = node.x()
+    const cy = node.y()
+    const topLeftX = cx - nrx
+    const topLeftY = cy - nry
 
     onObjectResizeEnd(obj.objectId, {
-      position: { x: node.x(), y: node.y() },
+      position: { x: topLeftX, y: topLeftY },
       dimensions: { width: newWidth, height: newHeight },
+      rotation: ((rot % 360) + 360) % 360,
     })
   }
 
-  const handlers = shapeHandlers(
-    obj.objectId,
-    viewport,
-    canEdit,
-    selected,
-    onObjectDragEnd,
-    onObjectClick,
-    isPointerTool
-  )
+  const handlers = {
+    ...shapeHandlers(obj.objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool),
+    onDragEnd: (e: { target: Konva.Node }) => {
+      const node = e.target
+      const absPos = node.getAbsolutePosition()
+      const canvasPos = stageToCanvas(absPos.x, absPos.y, viewport)
+      const topLeftX = canvasPos.x - w / 2
+      const topLeftY = canvasPos.y - h / 2
+      onObjectDragEnd(obj.objectId, topLeftX, topLeftY)
+      node.position({ x: topLeftX + w / 2, y: topLeftY + h / 2 })
+    },
+  }
 
-  const w = obj.dimensions?.width ?? 100
-  const h = obj.dimensions?.height ?? 100
   const rx = w / 2
   const ry = h / 2
   const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
@@ -78,8 +93,11 @@ export function CircleShape({
     <>
       <Group
         ref={groupRef}
-        x={obj.position?.x ?? 0}
-        y={obj.position?.y ?? 0}
+        x={pos.x + w / 2}
+        y={pos.y + h / 2}
+        offsetX={w / 2}
+        offsetY={h / 2}
+        rotation={rotation}
         opacity={opacity}
         {...handlers}
         onTransformEnd={handleTransformEnd}
@@ -97,7 +115,7 @@ export function CircleShape({
         />
       </Group>
       {selected && hasResizeHandler && canEdit && (
-        <Transformer ref={trRef} boundBoxFunc={boundBoxFunc} />
+        <Transformer ref={trRef} rotateEnabled={true} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )

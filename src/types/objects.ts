@@ -38,6 +38,8 @@ export interface BoardObjectBase {
   updatedAt: Timestamp
   /** Z-order; higher = on top. If absent, sort by createdAt. */
   displayOrder?: number
+  /** Clickable URL; Cmd/Ctrl+click opens. Only http(s)/mailto allowed. */
+  linkUrl?: string | null
 }
 
 export type BoardObjectType =
@@ -61,9 +63,30 @@ export type BoardObjectType =
   | 'text'
   | 'pen'
   | 'emoji'
+  | 'frame'
+
+/** Frame container: groups children with relative coordinates. Renders behind other objects. */
+export interface FrameObject extends BoardObjectBase, RotatableFields {
+  type: 'frame'
+  position: Point
+  dimensions: { width: number; height: number }
+  title?: string
+}
+
+/** Nesting: parentId = null for top-level, else frame id. localX/localY are relative to parent or world. */
+export interface NestableFields {
+  parentId?: string | null
+  localX?: number
+  localY?: number
+}
+
+/** Rotation in degrees [0, 360). Rotates around object center. */
+export interface RotatableFields {
+  rotation?: number
+}
 
 /** Sticky note: resizable, editable text, fill + text styling */
-export interface StickyObject extends BoardObjectBase {
+export interface StickyObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'sticky'
   position: Point
   dimensions: { width: number; height: number }
@@ -83,7 +106,7 @@ export const DEFAULT_FILL_COLOR = 'transparent'
 export type ShapeStrokeStyle = 'solid' | 'dashed' | 'dotted'
 
 /** Rectangle shape */
-export interface RectangleObject extends BoardObjectBase {
+export interface RectangleObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'rectangle'
   position: Point
   dimensions: { width: number; height: number }
@@ -98,7 +121,7 @@ export interface RectangleObject extends BoardObjectBase {
 }
 
 /** Circle/ellipse: dimensions = width & height */
-export interface CircleObject extends BoardObjectBase {
+export interface CircleObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'circle'
   position: Point
   dimensions: { width: number; height: number }
@@ -111,7 +134,7 @@ export interface CircleObject extends BoardObjectBase {
 }
 
 /** Triangle: position + dimensions; inverted = point down */
-export interface TriangleObject extends BoardObjectBase {
+export interface TriangleObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'triangle'
   position: Point
   dimensions: { width: number; height: number }
@@ -125,7 +148,7 @@ export interface TriangleObject extends BoardObjectBase {
 }
 
 /** Polygon shape (diamond, pentagon, hexagon, octagon): position + dimensions */
-export interface PolygonObject extends BoardObjectBase {
+export interface PolygonObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'diamond' | 'pentagon' | 'hexagon' | 'octagon'
   position: Point
   dimensions: { width: number; height: number }
@@ -137,7 +160,7 @@ export interface PolygonObject extends BoardObjectBase {
 }
 
 /** Star shape: position + dimensions */
-export interface StarObject extends BoardObjectBase {
+export interface StarObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'star'
   position: Point
   dimensions: { width: number; height: number }
@@ -149,7 +172,7 @@ export interface StarObject extends BoardObjectBase {
 }
 
 /** Arrow shape: position + dimensions; direction = 'right' | 'left' */
-export interface ArrowObject extends BoardObjectBase {
+export interface ArrowObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'arrow'
   position: Point
   dimensions: { width: number; height: number }
@@ -162,7 +185,7 @@ export interface ArrowObject extends BoardObjectBase {
 }
 
 /** Plus/cross shape */
-export interface PlusObject extends BoardObjectBase {
+export interface PlusObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'plus'
   position: Point
   dimensions: { width: number; height: number }
@@ -174,7 +197,7 @@ export interface PlusObject extends BoardObjectBase {
 }
 
 /** Parallelogram: shapeKind = 'right' | 'left' */
-export interface ParallelogramObject extends BoardObjectBase {
+export interface ParallelogramObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'parallelogram'
   position: Point
   dimensions: { width: number; height: number }
@@ -187,7 +210,7 @@ export interface ParallelogramObject extends BoardObjectBase {
 }
 
 /** Cylinder: shapeKind = 'vertical' | 'horizontal' */
-export interface CylinderObject extends BoardObjectBase {
+export interface CylinderObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'cylinder'
   position: Point
   dimensions: { width: number; height: number }
@@ -200,7 +223,7 @@ export interface CylinderObject extends BoardObjectBase {
 }
 
 /** Tab (document tab) shape */
-export interface TabShapeObject extends BoardObjectBase {
+export interface TabShapeObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'tab-shape'
   position: Point
   dimensions: { width: number; height: number }
@@ -212,7 +235,7 @@ export interface TabShapeObject extends BoardObjectBase {
 }
 
 /** Trapezoid shape */
-export interface TrapezoidObject extends BoardObjectBase {
+export interface TrapezoidObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'trapezoid'
   position: Point
   dimensions: { width: number; height: number }
@@ -224,7 +247,7 @@ export interface TrapezoidObject extends BoardObjectBase {
 }
 
 /** Circle with cross (flowchart decision) */
-export interface CircleCrossObject extends BoardObjectBase {
+export interface CircleCrossObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'circle-cross'
   position: Point
   dimensions: { width: number; height: number }
@@ -266,7 +289,7 @@ export interface PenObject extends BoardObjectBase {
 }
 
 /** Text box: editable text */
-export interface TextObject extends BoardObjectBase {
+export interface TextObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'text'
   position: Point
   dimensions: { width: number; height: number }
@@ -275,7 +298,7 @@ export interface TextObject extends BoardObjectBase {
 }
 
 /** Emoji/sticker placed on canvas */
-export interface EmojiObject extends BoardObjectBase {
+export interface EmojiObject extends BoardObjectBase, NestableFields, RotatableFields {
   type: 'emoji'
   position: Point
   emoji: string
@@ -284,6 +307,7 @@ export interface EmojiObject extends BoardObjectBase {
 
 export type BoardObject =
   | StickyObject
+  | FrameObject
   | RectangleObject
   | CircleObject
   | TriangleObject

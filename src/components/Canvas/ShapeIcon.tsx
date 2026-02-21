@@ -47,6 +47,13 @@ export default function ShapeIcon({ type }: ShapeIconProps) {
       return <img src={arrowElbowBidirectionalIcon} alt="" width={48} height={48} style={{ objectFit: 'contain' }} />
     case 'arrow-double':
       return <img src={arrowDoubleIcon} alt="" width={48} height={48} style={{ objectFit: 'contain' }} />
+    case 'frame':
+      return (
+        <svg {...iconProps} viewBox="0 0 24 24">
+          <rect x="2" y="2" width="20" height="20" rx="2" strokeWidth={1.5} />
+          <rect x="5" y="5" width="14" height="14" rx="1" fill="none" strokeWidth={1} strokeDasharray="2 2" />
+        </svg>
+      )
     case 'rectangle':
       return <img src={rectangleIcon} alt="" width={48} height={48} style={{ objectFit: 'contain' }} />
     case 'circle':

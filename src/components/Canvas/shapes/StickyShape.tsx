@@ -8,6 +8,7 @@ import { Group, Rect, Text, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { StickyObject } from '../../../types/objects'
 import type { BaseShapeProps } from './shared'
+import { stageToCanvas } from '../../../utils/coordinates'
 import {
   shapeHandlers,
   useShapeTransform,
@@ -32,9 +33,12 @@ export function StickyShape({
   onObjectClick,
   onObjectResizeEnd,
   onStickyDoubleClick,
+  displayPosition,
 }: StickyShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
+  const pos = displayPosition ?? obj.position
+  const rotation = (obj as { rotation?: number }).rotation ?? 0
 
   const hasResizeHandler = !!onObjectResizeEnd
   useShapeTransform(selected, hasResizeHandler, trRef, groupRef)
@@ -44,6 +48,7 @@ export function StickyShape({
     const node = groupRef.current
     const scaleX = node.scaleX()
     const scaleY = node.scaleY()
+    const rot = node.rotation()
     node.scaleX(1)
     node.scaleY(1)
     const rect = node.findOne('Rect')
@@ -57,32 +62,44 @@ export function StickyShape({
         text.width(w - 8)
         text.height(h - 8)
       }
+      node.offsetX(w / 2)
+      node.offsetY(h / 2)
+      const topLeftX = node.x() - w / 2
+      const topLeftY = node.y() - h / 2
       onObjectResizeEnd(obj.objectId, {
-        position: { x: node.x(), y: node.y() },
+        position: { x: topLeftX, y: topLeftY },
         dimensions: { width: w, height: h },
+        rotation: ((rot % 360) + 360) % 360,
       })
     }
   }
 
-  const handlers = shapeHandlers(
-    obj.objectId,
-    viewport,
-    canEdit,
-    selected,
-    onObjectDragEnd,
-    onObjectClick,
-    isPointerTool
-  )
-
-  const { position, dimensions, content, fillColor, textStyle } = obj
+  const { dimensions, content, fillColor, textStyle } = obj
+  const handlers = {
+    ...shapeHandlers(obj.objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool),
+    onDragEnd: (e: { target: Konva.Node }) => {
+      const node = e.target
+      const absPos = node.getAbsolutePosition()
+      const canvasPos = stageToCanvas(absPos.x, absPos.y, viewport)
+      const topLeftX = canvasPos.x - dimensions.width / 2
+      const topLeftY = canvasPos.y - dimensions.height / 2
+      onObjectDragEnd(obj.objectId, topLeftX, topLeftY)
+      node.position({ x: topLeftX + dimensions.width / 2, y: topLeftY + dimensions.height / 2 })
+    },
+  }
   const opacity = (obj as { opacity?: number }).opacity ?? 1
 
+  const w = dimensions.width
+  const h = dimensions.height
   return (
     <>
       <Group
         ref={groupRef}
-        x={position.x}
-        y={position.y}
+        x={pos.x + w / 2}
+        y={pos.y + h / 2}
+        offsetX={w / 2}
+        offsetY={h / 2}
+        rotation={rotation}
         opacity={opacity}
         {...handlers}
         onDblClick={canEdit ? () => onStickyDoubleClick(obj.objectId) : undefined}
@@ -127,7 +144,7 @@ export function StickyShape({
         />
       </Group>
       {selected && hasResizeHandler && canEdit && (
-        <Transformer ref={trRef} rotateEnabled={false} boundBoxFunc={boundBoxFunc} />
+        <Transformer ref={trRef} rotateEnabled={true} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )

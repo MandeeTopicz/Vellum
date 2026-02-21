@@ -19,6 +19,12 @@ interface ContextMenuProps {
   onDelete?: () => void
   onSendToFront?: () => void
   onBringToBack?: () => void
+  /** Open link for linked object (single selection) */
+  onOpenLink?: () => void
+  /** Reset rotation to 0 (single selection, when rotation !== 0) */
+  onResetRotation?: () => void
+  /** Open link editor for selected object(s) */
+  onLinkClick?: () => void
 }
 
 export function ContextMenu({
@@ -33,6 +39,9 @@ export function ContextMenu({
   onDelete,
   onSendToFront,
   onBringToBack,
+  onOpenLink,
+  onResetRotation,
+  onLinkClick,
 }: ContextMenuProps) {
   const [showArrangeSubmenu, setShowArrangeSubmenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -122,6 +131,42 @@ export function ContextMenu({
           >
             Delete
           </button>
+          {onOpenLink && (
+            <button
+              type="button"
+              className="context-menu-item"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                runAndClose(onOpenLink)
+              }}
+            >
+              Open link
+            </button>
+          )}
+          {onResetRotation && (
+            <button
+              type="button"
+              className="context-menu-item"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                runAndClose(onResetRotation)
+              }}
+            >
+              Reset rotation
+            </button>
+          )}
+          {onLinkClick && (
+            <button
+              type="button"
+              className="context-menu-item"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                runAndClose(onLinkClick)
+              }}
+            >
+              {onOpenLink ? 'Edit link' : 'Add link'}
+            </button>
+          )}
           {(onSendToFront || onBringToBack) && (
             <div
               className="context-menu-submenu-trigger"

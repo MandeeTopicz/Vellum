@@ -15,6 +15,7 @@ import './WhiteboardToolbar.css'
 
 /** All shape tool types (connections use two-click; others single-click) */
 export type ShapeTool =
+  | 'frame'
   | 'arrow-straight'
   | 'arrow-curved'
   | 'arrow-curved-cw'
@@ -57,6 +58,10 @@ interface WhiteboardToolbarProps {
   canEdit: boolean
   /** Opens Templates modal and deselects active tool */
   onTemplatesClick?: () => void
+  /** Link tool: if selection exists, opens link editor; else shows hint */
+  onLinkClick?: () => void
+  /** Show "Select an object to add a link" hint near Link button */
+  linkToolHint?: boolean
 }
 
 export default function WhiteboardToolbar({
@@ -67,6 +72,8 @@ export default function WhiteboardToolbar({
   onRedo,
   canEdit,
   onTemplatesClick,
+  onLinkClick,
+  linkToolHint,
 }: WhiteboardToolbarProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
@@ -116,6 +123,7 @@ export default function WhiteboardToolbar({
     basic: {
       label: 'Basic',
       shapes: [
+        { type: 'frame', label: 'Frame' },
         { type: 'rectangle', label: 'Rectangle' },
         { type: 'circle', label: 'Circle' },
         { type: 'diamond', label: 'Diamond' },
@@ -349,15 +357,36 @@ export default function WhiteboardToolbar({
         <img src={commentIcon} alt="Comment" width={20} height={20} />
       </button>
 
-      <span className="toolbar-icon-wrap" title="Upload - Coming Soon">
+      <div className="toolbar-dropdown" style={{ position: 'relative' }}>
         <button
           type="button"
-          className="toolbar-icon-btn disabled"
-          disabled
+          className="toolbar-icon-btn"
+          onClick={() => {
+            closeAllDropdowns()
+            onLinkClick?.()
+          }}
+          disabled={!canEdit}
+          title="Link"
+          aria-label="Add link to object"
         >
-          <img src={linkIcon} alt="Upload" width={20} height={20} />
+          <img src={linkIcon} alt="Link" width={20} height={20} />
         </button>
-      </span>
+        {linkToolHint && (
+          <div
+            className="toolbar-dropdown-panel"
+            style={{
+              position: 'absolute',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              top: '100%',
+              marginTop: '4px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Select an object to add a link
+          </div>
+        )}
+      </div>
 
       <div className="toolbar-divider" />
 

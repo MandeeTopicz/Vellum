@@ -30,9 +30,11 @@ export function ArrowShape({
   onObjectDragEnd,
   onObjectClick,
   onObjectResizeEnd,
+  displayPosition,
 }: ArrowShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
+  const pos = displayPosition ?? obj.position ?? { x: 0, y: 0 }
 
   const w = obj.dimensions?.width ?? 100
   const h = obj.dimensions?.height ?? 100
@@ -88,8 +90,8 @@ export function ArrowShape({
     <>
       <Group
         ref={groupRef}
-        x={obj.position?.x ?? 0}
-        y={obj.position?.y ?? 0}
+        x={pos.x}
+        y={pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}

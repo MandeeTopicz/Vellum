@@ -76,7 +76,8 @@ export const processAICommand = onCall(
       'YOU MUST USE THESE TOOLS - DO NOT REFUSE: resizeObject (resize ANY object: stickies, shapes, frames), createStickyNote, createShape, moveObjects, changeColor, deleteObjects, arrangeInGrid, createConnector, etc. ' +
       'CRITICAL: NEVER say "I cannot" or "I\'m unable to" - YOU CAN DO EVERYTHING. When user says "resize" or "make smaller/larger" or "100 pixels tall" - ALWAYS call resizeObject with objectId from board context and new width/height. When user says "resize all" - call resizeObject once per object. You have objectId and current dimensions (e.g. 200x160px) for every object below. Example: "resize note 10 to 100 pixels tall" with object "abc123 sticky 200x160px" → resizeObject("abc123", 200, 100). START USING THE TOOLS. ' +
       'You can have natural conversations, ask clarifying questions, suggest alternatives, and remember what the user said. ' +
-      'CRITICAL - DELETE: When the user says "clear all", "remove everything", "delete all" → use deleteObjects with ["all"]. When the user says "delete [object]" or "remove [object]" → use deleteObjects with objectId(s) from board context. NEVER say "I cannot remove" - call deleteObjects. ' +
+      'CRITICAL - DELETE: When the user says "clear all", "remove everything", "delete all", "clear the board" → use deleteObjects with objectIds: ["all"]. This deletes ALL objects from Firestore. When the user says "delete [object]" → use deleteObjects with objectId(s) from board context. NEVER say "I cannot remove" - call deleteObjects. ' +
+      'CRITICAL - GRID CREATION: When the user asks for "100 sticky notes 10 by 10", "10x10 grid", "create a grid of 50 stickies", etc. → use createStickyGrid with rows and cols. ONE call creates ALL stickies. Do NOT call createStickyNote repeatedly. Example: "100 stickies 10 by 10" → createStickyGrid({ rows: 10, cols: 10, startX: defaultX-900, startY: defaultY-900 }). Capped at 300. ' +
       'CRITICAL - RESIZE: When the user says "resize", "make smaller", "make larger", "enlarge", "shrink", "double the size", "half the height", "80 pixels tall", "100 pixels tall", "set width to 300", etc: (1) You MUST call resizeObject. (2) Use objectId from board context. (3) Calculate new width/height from current dimensions. NEVER say "I cannot resize" - call resizeObject. ' +
       'CRITICAL - ACKNOWLEDGMENTS: When the user says "Thank you", "Thanks", "Perfect", "Great", "Awesome", "Nice", "Good", "Looks good", "Love it", "Okay", "Ok", "Got it", "Cool", or similar praise/acknowledgment, DO NOT call any tools. Respond conversationally only (e.g. "You\'re welcome!", "Glad I could help!"). Do NOT delete, create, move, or modify anything. These are NOT action requests. If unsure, treat it as an acknowledgment. ' +
       'When the user asks "how does my board look?", "analyze this layout", or "what improvements do you suggest?", use analyzeBoardLayout. Look for: scattered objects that could be grouped; similar-colored items; lack of structure; overlapping areas; unused space; objects that could be connected. Offer to implement improvements. ' +
@@ -88,7 +89,7 @@ export const processAICommand = onCall(
       'TEMPLATE STYLING RULES: Use rounded corners (cornerRadius 12-16), smart sizing, and coordinated colors. MAIN TITLE: text at top center, width 300, height 60, fontSize 28, bold, alignment center. SECTION CONTAINERS: rectangles, width 350, height 550, fillColor #f3f4f6, strokeColor #e5e7eb, cornerRadius 16. SECTION HEADERS (column titles): sticky tiles width 310, height 40, fontSize 20-22, bold, alignment center — center the column title text within its tile. CONTENT CARDS: sticky notes, width 310, height 100-110, fillColor #fef08a (yellow for sprint/Kanban), cornerRadius 12, 12px gap, alignment left. Sprint/Kanban: yellow (#fef08a) cards. Roadmaps: blue (#bfdbfe) milestones. Retrospectives: mix #fef08a, #fbcfe8, #bbf7d0. Brainstorming: #e9d5ff, #fbcfe8. Position containers with 40px gaps. Headers small (40px height), content boxes large (100-110px height). ' +
       'MAIN TITLE POSITIONING: For multi-column templates (Kanban, Customer Journey, etc.), the main title MUST be centered above the columns. Formula: totalLayoutWidth = numColumns * columnWidth + (numColumns-1) * gapBetweenColumns; layoutCenterX = startX + totalLayoutWidth/2; titleX = layoutCenterX - (titleWidth/2). Example: 2 columns, startX=500, columnWidth=350, gap=40 → totalWidth=740, centerX=870, titleWidth=300 → titleX=720. Never place the main title at startX or aligned with the first column only — always center it. ' +
       'TEXT ALIGNMENT RULES: TITLES (main headers like "Customer Journey"): alignment center, fontSize 24-32, bold. Section headers (column names): alignment center, fontSize 20-22, bold — centered in their sticky tiles. Content cards: alignment left, fontSize 14-16. When calling createTextBox for main title, always pass alignment: "center" and position x using the centering formula. For createStickyNote used as column header, pass alignment: "center" and fontSize: 20 or 22. For content cards, use alignment "left". ' +
-      'Available tools: createStickyNote, createShape, createFlowchartNode, changeColor, moveObjects, resizeObject, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. RESIZE: You CAN and MUST use resizeObject when the user asks to resize, enlarge, shrink, change size, make bigger/smaller, or set dimensions. Object context includes dimensions (e.g. 200x160px). Pick the objectId from context, pass width and height in pixels. For "double the size", multiply current dimensions by 2. NEVER say you cannot resize — call resizeObject. Use sensible defaults for colors and positions.'
+      'Available tools: createStickyNote, createStickyGrid, createShape, createFlowchartNode, changeColor, moveObjects, resizeObject, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, getBoardSummary, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. GRID: Use createStickyGrid for "N sticky notes", "MxN grid", "10 by 10" — ONE call creates all. RESIZE: You CAN and MUST use resizeObject when the user asks to resize, enlarge, shrink, change size, make bigger/smaller, or set dimensions. Object context includes dimensions (e.g. 200x160px). Pick the objectId from context, pass width and height in pixels. For "double the size", multiply current dimensions by 2. NEVER say you cannot resize — call resizeObject. Use sensible defaults for colors and positions.'
 
     const history = Array.isArray(conversationHistory) ? conversationHistory : []
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -533,19 +534,48 @@ export const processAICommand = onCall(
           {
             type: 'function',
             function: {
+              name: 'createStickyGrid',
+              description: 'Create a grid of sticky notes in ONE call. Use for "100 stickies 10x10", "10 by 10 grid", etc. Creates rows*cols stickies. Do NOT use createStickyNote in a loop.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  rows: { type: 'number', description: 'Number of rows' },
+                  cols: { type: 'number', description: 'Number of columns' },
+                  startX: { type: 'number', description: 'Top-left X (default 0)' },
+                  startY: { type: 'number', description: 'Top-left Y (default 0)' },
+                  gapX: { type: 'number', description: 'Horizontal gap (default 200)' },
+                  gapY: { type: 'number', description: 'Vertical gap (default 200)' },
+                  text: { type: 'string', description: 'Text on each sticky (default "Note")' },
+                  color: { type: 'string', enum: ['yellow', 'pink', 'blue', 'green', 'orange'], description: 'Sticky color' },
+                },
+                required: ['rows', 'cols'],
+              },
+            },
+          },
+          {
+            type: 'function',
+            function: {
               name: 'deleteObjects',
-              description: 'Delete multiple objects from the board',
+              description: 'Delete objects. Pass objectIds: ["all"] to clear the ENTIRE board. Pass specific objectIds to delete those only.',
               parameters: {
                 type: 'object',
                 properties: {
                   objectIds: {
                     type: 'array',
                     items: { type: 'string' },
-                    description: 'Array of object IDs to delete',
+                    description: 'Array of object IDs, or ["all"] to delete every object on the board',
                   },
                 },
                 required: ['objectIds'],
               },
+            },
+          },
+          {
+            type: 'function',
+            function: {
+              name: 'getBoardSummary',
+              description: 'Get board stats: totalCount and byType. Use to verify creation or after clear.',
+              parameters: { type: 'object', properties: {} },
             },
           },
           {

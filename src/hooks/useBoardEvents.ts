@@ -2,7 +2,7 @@
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
 import { useEffect, useCallback, useMemo, useRef } from 'react'
-import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates, type CreateObjectInput } from '../services/objects'
+import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
 import { objToCreateInput, getObjectsBboxMin } from '../services/aiTools/shared'
 import {
   createComment,
@@ -20,6 +20,16 @@ import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
 import { debounce } from '../utils/debounce'
 import { objectsInSelectionRect } from '../utils/objectBounds'
+import {
+  resolveWorldPos,
+  getLocalPos,
+  getParentId,
+  isInsideFrame,
+  getFrameBbox,
+  isNestableType,
+  findContainingFrame,
+  type FramesByIdMap,
+} from '../utils/frames'
 import type { useBoardData } from './useBoardData'
 import type { useBoardTools } from './useBoardTools'
 
@@ -68,13 +78,13 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
 
-  const dragUpdateQueueRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const dragUpdateQueueRef = useRef<Map<string, PositionUpdate>>(new Map())
   const flushDragUpdates = useMemo(
     () =>
       debounce(async () => {
         const queue = dragUpdateQueueRef.current
         if (queue.size === 0 || !id) return
-        const updates = Array.from(queue.entries()).map(([objectId, { x, y }]) => ({ objectId, x, y }))
+        const updates = Array.from(queue.values())
         queue.clear()
         await batchUpdatePositions(id, updates)
       }, 100),
@@ -93,6 +103,57 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedIds.size > 0 && canEdit) {
           e.preventDefault()
+          const frameIds = new Set<string>()
+          selectedIds.forEach((oid) => {
+            const o = objects[oid]
+            if (o?.type === 'frame') frameIds.add(oid)
+          })
+          const childUpdates: PositionUpdate[] = []
+          for (const fid of frameIds) {
+            const frame = objects[fid] as { type: 'frame'; position: { x: number; y: number } } | undefined
+            if (!frame) continue
+            for (const [oid, o] of Object.entries(objects)) {
+              if (oid === fid || o.type === 'frame') continue
+              const pid = getParentId(o)
+              if (pid === fid) {
+                const pos = getLocalPos(o)
+                if (pos) {
+                  const childWorldX = frame.position.x + pos.x
+                  const childWorldY = frame.position.y + pos.y
+                  childUpdates.push({
+                    objectId: oid,
+                    x: childWorldX,
+                    y: childWorldY,
+                    parentId: null,
+                    localX: childWorldX,
+                    localY: childWorldY,
+                  })
+                }
+              }
+            }
+          }
+          if (childUpdates.length > 0) {
+            batchUpdatePositions(id, childUpdates)
+            setObjects((prev: ObjectsMap) => {
+              let next: ObjectsMap = prev
+              for (const u of childUpdates) {
+                const o = next[u.objectId]
+                if (o && isNestableType(o.type)) {
+                  next = {
+                    ...next,
+                    [u.objectId]: {
+                      ...o,
+                      parentId: null,
+                      localX: u.localX!,
+                      localY: u.localY!,
+                      position: { x: u.localX!, y: u.localY! },
+                    } as BoardObject,
+                  }
+                }
+              }
+              return next
+            })
+          }
           selectedIds.forEach((oid: string) => {
             const obj = objects[oid]
             if (obj) pushUndo({ type: 'delete', objectId: oid, deleted: obj })
@@ -166,6 +227,13 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       const draggedObj = currentObjects[objectId]
       if (!draggedObj) return
 
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(currentObjects)) {
+        if (o.type === 'frame') {
+          framesById[o.objectId] = o as FramesByIdMap[string]
+        }
+      }
+
       let dx: number
       let dy: number
       if (draggedObj.type === 'line') {
@@ -175,14 +243,15 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         dx = x - minX
         dy = y - minY
       } else if ('position' in draggedObj) {
-        const pos = (draggedObj as { position: { x: number; y: number } }).position
-        dx = x - pos.x
-        dy = y - pos.y
+        const worldStart = resolveWorldPos(draggedObj, framesById)
+        if (!worldStart) return
+        dx = x - worldStart.x
+        dy = y - worldStart.y
       } else {
         return
       }
 
-      const positionUpdates: Record<string, { x: number; y: number }> = {}
+      const positionUpdates: Record<string, PositionUpdate> = {}
       type LineUpdate = { oid: string; to: { start: { x: number; y: number }; end: { x: number; y: number } }; from: { start: { x: number; y: number }; end: { x: number; y: number } } }
       const lineUpdates: LineUpdate[] = []
 
@@ -196,18 +265,74 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
             end: { x: line.end.x + dx, y: line.end.y + dy },
           }
           lineUpdates.push({ oid, to, from: { start: line.start, end: line.end } })
-        } else if ('position' in o) {
+        } else if (o.type === 'frame') {
           const pos = (o as { position: { x: number; y: number } }).position
           const newX = oid === objectId ? x : pos.x + dx
           const newY = oid === objectId ? y : pos.y + dy
-          positionUpdates[oid] = { x: newX, y: newY }
+          positionUpdates[oid] = { objectId: oid, x: newX, y: newY }
           pushUndo({
             type: 'update',
             objectId: oid,
             from: { position: pos },
             to: { position: { x: newX, y: newY } },
           })
-          dragUpdateQueueRef.current.set(oid, { x: newX, y: newY })
+          dragUpdateQueueRef.current.set(oid, { objectId: oid, x: newX, y: newY })
+        } else if (isNestableType(o.type) && 'position' in o) {
+          const worldStart = resolveWorldPos(o, framesById)
+          if (!worldStart) continue
+          const worldX = oid === objectId ? x : worldStart.x + dx
+          const worldY = oid === objectId ? y : worldStart.y + dy
+          const dims = (o as { dimensions?: { width: number; height: number } }).dimensions ?? { width: 100, height: 100 }
+          const objWorldBBox = {
+            left: worldX,
+            top: worldY,
+            right: worldX + dims.width,
+            bottom: worldY + dims.height,
+          }
+
+          let newParentId: string | null = null
+          let newLocalX = worldX
+          let newLocalY = worldY
+
+          const containingFrames: Array<{ id: string; area: number; displayOrder: number }> = []
+          for (const [fid, frame] of Object.entries(framesById)) {
+            if (frame.objectId === oid) continue
+            const fb = getFrameBbox(frame)
+            if (isInsideFrame(objWorldBBox, fb)) {
+              const area = fb.width * fb.height
+              const order = frame.displayOrder ?? 0
+              containingFrames.push({ id: fid, area, displayOrder: order })
+            }
+          }
+          containingFrames.sort((a, b) => {
+            if (a.area !== b.area) return a.area - b.area
+            return b.displayOrder - a.displayOrder
+          })
+          const topFrame = containingFrames[0]
+          if (topFrame) {
+            const f = framesById[topFrame.id]
+            newParentId = f.objectId
+            newLocalX = worldX - f.position.x
+            newLocalY = worldY - f.position.y
+          }
+
+          const prevPos = getLocalPos(o)
+          const prevParent = getParentId(o)
+          positionUpdates[oid] = {
+            objectId: oid,
+            x: worldX,
+            y: worldY,
+            parentId: newParentId,
+            localX: newLocalX,
+            localY: newLocalY,
+          }
+          pushUndo({
+            type: 'update',
+            objectId: oid,
+            from: prevPos ? { position: { x: prevPos.x, y: prevPos.y }, parentId: prevParent } : {},
+            to: { position: { x: newLocalX, y: newLocalY }, parentId: newParentId },
+          })
+          dragUpdateQueueRef.current.set(oid, positionUpdates[oid])
         }
       }
 
@@ -218,11 +343,23 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
       if (Object.keys(positionUpdates).length > 0) {
         setObjects((prev: ObjectsMap) => {
-          let next = prev
-          for (const [oid, pos] of Object.entries(positionUpdates)) {
+          let next: ObjectsMap = prev
+          for (const [oid, upd] of Object.entries(positionUpdates)) {
             const o = next[oid]
-            if (o && 'position' in o) {
-              next = { ...next, [oid]: { ...o, position: pos } }
+            if (!o) continue
+            if (o.type === 'frame' && 'position' in o) {
+              next = { ...next, [oid]: { ...o, position: { x: upd.x, y: upd.y } } }
+            } else if (isNestableType(o.type) && 'parentId' in upd) {
+              next = {
+                ...next,
+                [oid]: {
+                  ...o,
+                  parentId: (upd as PositionUpdate).parentId ?? null,
+                  localX: (upd as PositionUpdate).localX ?? upd.x,
+                  localY: (upd as PositionUpdate).localY ?? upd.y,
+                  position: { x: (upd as PositionUpdate).localX ?? upd.x, y: (upd as PositionUpdate).localY ?? upd.y },
+                } as BoardObject,
+              }
             }
           }
           return next
@@ -235,7 +372,11 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   const handleSelectionBoxEnd = useCallback(
     (rect: { left: number; top: number; right: number; bottom: number }) => {
-      const ids = objectsInSelectionRect(objects, rect)
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(objects)) {
+        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+      }
+      const ids = objectsInSelectionRect(objects, rect, framesById)
       setSelectedIds(new Set(ids))
       setActiveTool('pointer')
     },
@@ -243,10 +384,19 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   )
 
   const handleObjectClick = useCallback(
-    (objectId: string, e: { ctrlKey: boolean }) => {
+    (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => {
+      const obj = objects[objectId]
+      const linkUrl = obj && (obj as { linkUrl?: string | null }).linkUrl
+      if ((e.ctrlKey || e.metaKey) && linkUrl) {
+        const url = linkUrl.startsWith('http://') || linkUrl.startsWith('https://') || linkUrl.startsWith('mailto:')
+          ? linkUrl
+          : `https://${linkUrl}`
+        window.open(url, '_blank', 'noopener,noreferrer')
+        return
+      }
       setSelectedIds((prev: Set<string>) => {
         const next = new Set(prev)
-        if (e.ctrlKey) {
+        if (e.ctrlKey || e.metaKey) {
           if (next.has(objectId)) next.delete(objectId)
           else next.add(objectId)
         } else {
@@ -255,7 +405,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         return next
       })
     },
-    [setSelectedIds]
+    [objects, setSelectedIds]
   )
 
   const handleObjectResizeEnd = useCallback(
@@ -269,6 +419,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           : {
               position: (obj as { position: { x: number; y: number } }).position,
               dimensions: (obj as { dimensions: { width: number; height: number } }).dimensions,
+              rotation: (obj as { rotation?: number }).rotation,
             }
       pushUndo({ type: 'update', objectId, from, to: updates })
       setObjects((prev: ObjectsMap) => {
@@ -277,10 +428,15 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         if ('start' in updates) {
           return { ...prev, [objectId]: { ...o, start: updates.start, end: updates.end } }
         }
-        return {
-          ...prev,
-          [objectId]: { ...o, position: updates.position, dimensions: updates.dimensions },
+        const next: BoardObject = {
+          ...o,
+          position: updates.position,
+          dimensions: updates.dimensions,
         }
+        if (typeof (updates as { rotation?: number }).rotation === 'number') {
+          (next as { rotation?: number }).rotation = (updates as { rotation: number }).rotation
+        }
+        return { ...prev, [objectId]: next }
       })
       await updateObject(id, objectId, updates as ObjectUpdates)
     },
@@ -363,7 +519,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           })
         }
       } else if (
-        (activeTool === 'sticky' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'triangle' || activeTool === 'triangle-inverted' || activeTool === 'diamond' || activeTool === 'star' || activeTool === 'pentagon' || activeTool === 'hexagon' || activeTool === 'plus' || activeTool === 'parallelogram-right' || activeTool === 'parallelogram-left' || activeTool === 'cylinder-vertical' || activeTool === 'cylinder-horizontal' || activeTool === 'tab-shape' || activeTool === 'trapezoid' || activeTool === 'circle-cross') &&
+        (activeTool === 'sticky' || activeTool === 'frame' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'triangle' || activeTool === 'triangle-inverted' || activeTool === 'diamond' || activeTool === 'star' || activeTool === 'pentagon' || activeTool === 'hexagon' || activeTool === 'plus' || activeTool === 'parallelogram-right' || activeTool === 'parallelogram-left' || activeTool === 'cylinder-vertical' || activeTool === 'cylinder-horizontal' || activeTool === 'tab-shape' || activeTool === 'trapezoid' || activeTool === 'circle-cross') &&
         canEdit
       ) {
         const basePos = { x: canvasX - 50, y: canvasY - 50 }
@@ -372,6 +528,8 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         let input: Parameters<typeof createObject>[1] | null = null
         if (activeTool === 'sticky') {
           input = { type: 'sticky', position: { x: canvasX - 100, y: canvasY - 100 }, dimensions: { width: 200, height: 200 }, fillColor: '#fef08a' }
+        } else if (activeTool === 'frame') {
+          input = { type: 'frame', position: { x: canvasX - 400, y: canvasY - 300 }, dimensions: { width: 800, height: 600 } }
         } else if (activeTool === 'rectangle') {
           input = { type: 'rectangle', position: { ...basePos, y: canvasY - 50 }, dimensions: { width: 150, height: 100 }, ...baseStyle }
         } else if (activeTool === 'circle') {
@@ -395,6 +553,31 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         } else if (activeTool === 'tab-shape' || activeTool === 'trapezoid' || activeTool === 'circle-cross') {
           input = { type: activeTool, position: basePos, dimensions: baseDims, ...baseStyle }
         }
+        if (input && 'position' in input && 'dimensions' in input && isNestableType(input.type)) {
+          const pos = input.position
+          const dims = input.dimensions
+          const objWorldBBox = {
+            left: pos.x,
+            top: pos.y,
+            right: pos.x + dims.width,
+            bottom: pos.y + dims.height,
+          }
+          const framesById: FramesByIdMap = {}
+          for (const o of Object.values(objects)) {
+            if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+          }
+          const frameId = findContainingFrame(objWorldBBox, framesById)
+          if (frameId) {
+            const frame = framesById[frameId]
+            if (frame) {
+              Object.assign(input, {
+                parentId: frameId,
+                localX: pos.x - frame.position.x,
+                localY: pos.y - frame.position.y,
+              })
+            }
+          }
+        }
         if (input) {
           const objectId = await createObject(id, input)
           pushUndo({ type: 'create', objectId, createInput: input })
@@ -408,14 +591,30 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       if (activeTool === 'emoji' && canEdit) {
         const emoji = pendingEmoji ?? '😀'
-        const input = { type: 'emoji' as const, position: { x: canvasX - 16, y: canvasY - 16 }, emoji }
+        const size = 32
+        const pos = { x: canvasX - 16, y: canvasY - 16 }
+        const input: { type: 'emoji'; position: { x: number; y: number }; emoji: string; parentId?: string; localX?: number; localY?: number } = { type: 'emoji', position: pos, emoji }
+        const objWorldBBox = { left: pos.x, top: pos.y, right: pos.x + size, bottom: pos.y + size }
+        const framesById: FramesByIdMap = {}
+        for (const o of Object.values(objects)) {
+          if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+        }
+        const frameId = findContainingFrame(objWorldBBox, framesById)
+        if (frameId) {
+          const frame = framesById[frameId]
+          if (frame) {
+            input.parentId = frameId
+            input.localX = pos.x - frame.position.x
+            input.localY = pos.y - frame.position.y
+          }
+        }
         const objectId = await createObject(id, input)
         pushUndo({ type: 'create', objectId, createInput: input })
         setSelectedIds(new Set([objectId]))
         setActiveTool('pointer')
       }
     },
-    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText]
+    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects]
   )
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
@@ -684,6 +883,23 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       await updateObject(id, objectId, updates)
     },
     [id, canEdit]
+  )
+
+  const handleLinkSave = useCallback(
+    async (objectId: string, url: string | null) => {
+      if (!id || !canEdit) return
+      const obj = objects[objectId]
+      if (!obj) return
+      const from = { linkUrl: (obj as { linkUrl?: string | null }).linkUrl }
+      pushUndo({ type: 'update', objectId, from, to: { linkUrl: url } })
+      setObjects((prev: ObjectsMap) => {
+        const o = prev[objectId]
+        if (!o) return prev
+        return { ...prev, [objectId]: { ...o, linkUrl: url } }
+      })
+      await updateObject(id, objectId, { linkUrl: url })
+    },
+    [id, canEdit, objects, pushUndo, setObjects]
   )
 
   const handleCopy = useCallback(() => {
@@ -1005,6 +1221,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     handleEraserMove,
     handleBoardNameChange,
     handleObjectStyleUpdate,
+    handleLinkSave,
     handleSelectionBoxEnd,
     handleCopy,
     handlePaste,

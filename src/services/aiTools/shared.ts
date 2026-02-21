@@ -90,12 +90,26 @@ export function getObjectsBboxMin(objs: BoardObject[]): { x: number; y: number }
   return { x: minX, y: minY }
 }
 
+/** @internal Appends rotation and linkUrl to create input when present */
+function withRotationAndLink<T extends Record<string, unknown>>(
+  input: T,
+  obj: BoardObject
+): T & { rotation?: number; linkUrl?: string | null } {
+  const rot = (obj as { rotation?: number }).rotation
+  const link = (obj as { linkUrl?: string | null }).linkUrl
+  return {
+    ...input,
+    ...(typeof rot === 'number' && { rotation: rot }),
+    ...(link !== undefined && { linkUrl: link }),
+  } as T & { rotation?: number; linkUrl?: string | null }
+}
+
 /** Converts BoardObject to CreateObjectInput with position offset (for copy/paste/duplicate). Preserves all styling. */
 export function objToCreateInput(obj: BoardObject, dx: number, dy: number): CreateObjectInput | null {
   switch (obj.type) {
     case 'sticky': {
       const s = obj as { cornerRadius?: number; opacity?: number }
-      return {
+      return withRotationAndLink({
         type: 'sticky',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -104,11 +118,11 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         textStyle: obj.textStyle,
         cornerRadius: s.cornerRadius,
         opacity: s.opacity,
-      }
+      }, obj)
     }
     case 'rectangle': {
       const style = shapeStyle(obj)
-      return {
+      return withRotationAndLink({
         type: 'rectangle',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -119,13 +133,13 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeStyle: style.strokeStyle,
         opacity: style.opacity,
         cornerRadius: style.cornerRadius,
-      }
+      }, obj)
     }
     case 'circle':
     case 'triangle': {
       const style = shapeStyle(obj)
       const tri = obj as { inverted?: boolean }
-      return {
+      return withRotationAndLink({
         type: obj.type,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -136,11 +150,11 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeStyle: style.strokeStyle,
         opacity: style.opacity,
         ...(obj.type === 'triangle' && { inverted: tri.inverted }),
-      }
+      }, obj)
     }
     case 'line': {
       const line = obj as { strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
-      return {
+      return withRotationAndLink({
         type: 'line',
         start: { x: obj.start.x + dx, y: obj.start.y + dy },
         end: { x: obj.end.x + dx, y: obj.end.y + dy },
@@ -149,27 +163,27 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeOpacity: line.strokeOpacity,
         strokeStyle: line.strokeStyle,
         connectionType: line.connectionType,
-      }
+      }, obj)
     }
     case 'text':
-      return {
+      return withRotationAndLink({
         type: 'text',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         content: obj.content,
         textStyle: obj.textStyle,
-      }
+      }, obj)
     case 'emoji':
-      return {
+      return withRotationAndLink({
         type: 'emoji',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         emoji: obj.emoji,
         fontSize: obj.fontSize,
-      }
+      }, obj)
     case 'pen': {
       const pen = obj as { points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
       const points = pen.points.map((p) => [p[0] + dx, p[1] + dy] as [number, number])
-      return {
+      return withRotationAndLink({
         type: 'pen',
         points,
         color: pen.color,
@@ -177,7 +191,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         isHighlighter: pen.isHighlighter,
         opacity: pen.opacity,
         strokeType: pen.strokeType,
-      }
+      }, obj)
     }
     case 'diamond':
     case 'star':
@@ -191,7 +205,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     case 'circle-cross': {
       const style = shapeStyle(obj)
       const arr = obj as { direction?: 'right' | 'left' }
-      return {
+      return withRotationAndLink({
         type: obj.type,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -202,12 +216,12 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeStyle: style.strokeStyle,
         opacity: style.opacity,
         ...(obj.type === 'arrow' && { direction: arr.direction }),
-      }
+      }, obj)
     }
     case 'parallelogram': {
       const style = shapeStyle(obj)
       const p = obj as { shapeKind?: 'right' | 'left' }
-      return {
+      return withRotationAndLink({
         type: 'parallelogram',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -218,12 +232,12 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeStyle: style.strokeStyle,
         opacity: style.opacity,
         shapeKind: p.shapeKind ?? 'right',
-      }
+      }, obj)
     }
     case 'cylinder': {
       const style = shapeStyle(obj)
       const c = obj as { shapeKind?: 'vertical' | 'horizontal' }
-      return {
+      return withRotationAndLink({
         type: 'cylinder',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
@@ -234,8 +248,15 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         strokeStyle: style.strokeStyle,
         opacity: style.opacity,
         shapeKind: c.shapeKind ?? 'vertical',
-      }
+      }, obj)
     }
+    case 'frame':
+      return withRotationAndLink({
+        type: 'frame',
+        position: { x: obj.position.x + dx, y: obj.position.y + dy },
+        dimensions: obj.dimensions,
+        title: (obj as { title?: string }).title,
+      }, obj)
     default:
       return null
   }

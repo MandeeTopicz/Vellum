@@ -6,6 +6,7 @@ export * from './shared'
 
 // Shape components
 export { RectangleShape } from './RectangleShape'
+export { FrameShape } from './FrameShape'
 export { CircleShape } from './CircleShape'
 export { StickyShape } from './StickyShape'
 export { TriangleShape } from './TriangleShape'

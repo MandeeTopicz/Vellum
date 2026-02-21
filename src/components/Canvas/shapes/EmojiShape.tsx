@@ -18,8 +18,10 @@ export function EmojiShape({
   isPointerTool,
   onObjectDragEnd,
   onObjectClick,
+  displayPosition,
 }: EmojiShapeProps) {
-  const { objectId, position, emoji, fontSize = 32 } = obj
+  const { objectId, emoji, fontSize = 32 } = obj
+  const pos = displayPosition ?? obj.position
   const handlers = shapeHandlers(
     objectId,
     viewport,
@@ -30,7 +32,7 @@ export function EmojiShape({
     isPointerTool
   )
   return (
-    <Group x={position.x} y={position.y} {...handlers}>
+    <Group x={pos.x} y={pos.y} {...handlers}>
       <Text
         text={emoji}
         fontSize={fontSize}

@@ -257,8 +257,10 @@ export function buildComposedTemplate(key: string): CreateObjectInput[] {
         fillColor: '#f3f4f6',
         cornerRadius: 12,
       })
+      const initY = -30
+      const initBottom = initY + colH * 2 + colGap + colH
       const sections: { label: string; x: number; y: number }[] = [
-        { label: 'Initial', x: cx - colW / 2, y: 15 },
+        { label: 'Initial', x: cx - colW / 2, y: initY },
         { label: 'Assess', x: cx + 95, y: cy - headerH - colH - colGap / 2 },
         { label: 'Migrate', x: cx - colW / 2, y: cy + ch / 2 + 35 },
         { label: 'Operate & Improve', x: 25, y: cy - headerH - colH - colGap / 2 },
@@ -297,7 +299,7 @@ export function buildComposedTemplate(key: string): CreateObjectInput[] {
       const migrTop = cy + ch / 2 + 35
       const operRight = 25 + colW
         items.push(
-        { type: 'line', start: { x: cx, y: centerTop }, end: { x: cx, y: 15 + headerH + 4 }, strokeColor: '#64748b', strokeWidth: 2, connectionType: 'arrow-straight' },
+        { type: 'line', start: { x: cx, y: centerTop }, end: { x: cx, y: initBottom }, strokeColor: '#64748b', strokeWidth: 2, connectionType: 'arrow-straight' },
         { type: 'line', start: { x: centerRight, y: cy }, end: { x: assessLeft - 6, y: cy }, strokeColor: '#64748b', strokeWidth: 2, connectionType: 'arrow-straight' },
         { type: 'line', start: { x: cx, y: centerBottom }, end: { x: cx, y: migrTop - 6 }, strokeColor: '#64748b', strokeWidth: 2, connectionType: 'arrow-straight' },
         { type: 'line', start: { x: centerLeft, y: cy }, end: { x: operRight + 6, y: cy }, strokeColor: '#64748b', strokeWidth: 2, connectionType: 'arrow-straight' }

@@ -1,11 +1,13 @@
 /**
  * Renders a text box on the canvas with formatting support.
+ * Supports 360° rotation via Transformer.
  */
 import { useRef } from 'react'
 import { Group, Rect, Text, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { TextObject } from '../../../types/objects'
 import type { BaseShapeProps } from './shared'
+import { stageToCanvas } from '../../../utils/coordinates'
 import {
   shapeHandlers,
   useShapeTransform,
@@ -28,11 +30,13 @@ export function TextShape({
   onObjectClick,
   onObjectResizeEnd,
   onTextDoubleClick,
+  displayPosition,
 }: TextShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
+  const pos = displayPosition ?? obj.position
 
-  const { objectId, position, dimensions, content, textStyle } = obj
+  const { objectId, dimensions, content, textStyle } = obj
   const fontSize = textStyle?.fontSize ?? 16
 
   const hasResizeHandler = !!onObjectResizeEnd
@@ -43,27 +47,48 @@ export function TextShape({
     const node = groupRef.current
     const scaleX = node.scaleX()
     const scaleY = node.scaleY()
+    const rot = node.rotation()
     node.scaleX(1)
     node.scaleY(1)
+    node.rotation(0)
     const rect = node.findOne('Rect')
     if (rect) {
-      const w = Math.max(MIN_SIZE, rect.width() * scaleX)
-      const h = Math.max(MIN_SIZE, rect.height() * scaleY)
-      rect.width(w)
-      rect.height(h)
+      const nw = Math.max(MIN_SIZE, rect.width() * scaleX)
+      const nh = Math.max(MIN_SIZE, rect.height() * scaleY)
+      rect.width(nw)
+      rect.height(nh)
       const text = node.findOne('Text')
       if (text) {
-        text.width(w - 8)
-        text.height(h - 8)
+        text.width(nw - 8)
+        text.height(nh - 8)
       }
+      node.offsetX(nw / 2)
+      node.offsetY(nh / 2)
+      node.rotation(rot)
+      const cx = node.x()
+      const cy = node.y()
       onObjectResizeEnd(objectId, {
-        position: { x: node.x(), y: node.y() },
-        dimensions: { width: w, height: h },
+        position: { x: cx - nw / 2, y: cy - nh / 2 },
+        dimensions: { width: nw, height: nh },
+        rotation: ((rot % 360) + 360) % 360,
       })
     }
   }
 
-  const handlers = shapeHandlers(
+  const handlers = {
+    ...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool),
+    onDragEnd: (e: { target: Konva.Node }) => {
+      const node = e.target
+      const absPos = node.getAbsolutePosition()
+      const canvasPos = stageToCanvas(absPos.x, absPos.y, viewport)
+      const topLeftX = canvasPos.x - w / 2
+      const topLeftY = canvasPos.y - h / 2
+      onObjectDragEnd(objectId, topLeftX, topLeftY)
+      node.position({ x: topLeftX + w / 2, y: topLeftY + h / 2 })
+    },
+  }
+
+  const _handlers = shapeHandlers(
     objectId,
     viewport,
     canEdit,
@@ -86,8 +111,8 @@ export function TextShape({
     <>
       <Group
         ref={groupRef}
-        x={position.x}
-        y={position.y}
+        x={pos.x}
+        y={pos.y}
         {...handlers}
         onDblClick={canEdit ? () => onTextDoubleClick(objectId) : undefined}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}

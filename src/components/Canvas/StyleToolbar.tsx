@@ -25,6 +25,12 @@ interface StyleToolbarProps {
   onBringToBack?: () => void
   /** Whether paste is available (clipboard has content) */
   canPaste?: boolean
+  /** Open link editor for selected object(s) */
+  onLinkClick?: () => void
+}
+
+function isRotatable(obj: BoardObject): obj is BoardObject & { rotation?: number } {
+  return 'position' in obj && 'dimensions' in obj
 }
 
 function hasFillColor(obj: BoardObject): obj is BoardObject & { fillColor?: string } {
@@ -50,6 +56,7 @@ export function StyleToolbar({
   onSendToFront,
   onBringToBack,
   canPaste = false,
+  onLinkClick,
 }: StyleToolbarProps) {
   const [showBorderDropdown, setShowBorderDropdown] = useState(false)
   const [showFillDropdown, setShowFillDropdown] = useState(false)
@@ -117,6 +124,9 @@ export function StyleToolbar({
   const showFill = hasFillColor(selectedObject)
   const showStrokeStyle = showBorder && selectedObject.type !== 'line'
   const showCornersControl = hasCornerRadius(selectedObject)
+  const rotation = isRotatable(selectedObject) ? (selectedObject.rotation ?? 0) : 0
+  const hasRotation = isRotatable(selectedObject)
+  const linkUrl = (selectedObject as { linkUrl?: string | null }).linkUrl
 
   const TOOLBAR_WIDTH = 180
   const halfWidth = TOOLBAR_WIDTH / 2
@@ -527,6 +537,75 @@ export function StyleToolbar({
             </div>
           )}
         </div>
+      )}
+
+      {/* Rotation: numeric input and Reset (for rotatable objects) */}
+      {hasRotation && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <label style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>°</label>
+          <input
+            type="number"
+            min={0}
+            max={360}
+            value={Math.round(rotation)}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10)
+              if (!Number.isNaN(v)) {
+                const normalized = ((v % 360) + 360) % 360
+                onUpdate({ rotation: normalized } as Partial<BoardObject>)
+              }
+            }}
+            style={{
+              width: '44px',
+              padding: '4px 6px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              fontSize: '13px',
+            }}
+          />
+          {rotation !== 0 && (
+            <button
+              type="button"
+              title="Reset rotation"
+              onClick={() => onUpdate({ rotation: 0 } as Partial<BoardObject>)}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px',
+                background: 'white',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Link button – chain icon when object has link, or add link */}
+      {onLinkClick && (
+        <button
+          type="button"
+          title={linkUrl ? 'Edit link' : 'Add link'}
+          onClick={onLinkClick}
+          style={{
+            width: '36px',
+            height: '36px',
+            border: linkUrl ? '2px solid #3b82f6' : '1px solid #d1d5db',
+            borderRadius: '6px',
+            background: linkUrl ? '#eff6ff' : 'white',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+        </button>
       )}
 
       {/* More button – three dots */}

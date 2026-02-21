@@ -3,6 +3,7 @@
  * Used for viewport culling, selection box intersection, etc.
  */
 import type { BoardObject } from '../types'
+import { getWorldBounds, type FramesByIdMap } from './frames'
 
 /**
  * Bounding box for an object in canvas coordinates.
@@ -55,6 +56,18 @@ export function getObjectBounds(obj: BoardObject): Bounds {
 }
 
 /**
+ * Get bounding box in world coordinates (accounts for frame nesting).
+ * @param obj - Board object
+ * @param framesById - Map of frame id -> frame for resolving parent positions
+ * @returns Bounding box in world canvas coordinates
+ */
+export function getObjectBoundsWorld(obj: BoardObject, framesById: FramesByIdMap): Bounds {
+  const wb = getWorldBounds(obj, framesById)
+  if (wb) return wb
+  return getObjectBounds(obj)
+}
+
+/**
  * Selection rectangle in canvas coordinates (left <= right, top <= bottom).
  */
 export interface SelectionRect {
@@ -76,15 +89,17 @@ function boundsIntersectRect(bounds: Bounds, rect: SelectionRect): boolean {
  * Get object IDs that intersect the selection rectangle.
  * @param objectsMap - Map of objectId -> BoardObject
  * @param rect - Selection rectangle in canvas coordinates
+ * @param framesById - Optional map of frames for world-coord bounds
  * @returns Array of object IDs that intersect the rect
  */
 export function objectsInSelectionRect(
   objectsMap: Record<string, BoardObject>,
-  rect: SelectionRect
+  rect: SelectionRect,
+  framesById?: FramesByIdMap
 ): string[] {
   const ids: string[] = []
   for (const [objectId, obj] of Object.entries(objectsMap)) {
-    const bounds = getObjectBounds(obj)
+    const bounds = framesById ? getObjectBoundsWorld(obj, framesById) : getObjectBounds(obj)
     if (boundsIntersectRect(bounds, rect)) {
       ids.push(objectId)
     }

@@ -3,7 +3,8 @@ import { Rect } from 'react-konva'
 import type { ObjectsMap, BoardObject } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
 import { isResizableType } from './shapes'
-import { getObjectBounds } from '../../utils/objectBounds'
+import { getObjectBounds, getObjectBoundsWorld } from '../../utils/objectBounds'
+import { resolveWorldPos, isNestableType, type FramesByIdMap } from '../../utils/frames'
 
 const ZOOMED_OUT_THRESHOLD = 0.25
 
@@ -16,8 +17,8 @@ function shouldRenderSimplified(obj: BoardObject, zoomedOut: boolean): boolean {
   return w < 50 || h < 50
 }
 
-function getSimplifiedRectProps(obj: BoardObject): { x: number; y: number; width: number; height: number; fill: string } {
-  const bounds = getObjectBounds(obj)
+function getSimplifiedRectProps(obj: BoardObject, framesById?: FramesByIdMap): { x: number; y: number; width: number; height: number; fill: string } {
+  const bounds = framesById ? getObjectBoundsWorld(obj, framesById) : getObjectBounds(obj)
   const fill = 'fillColor' in obj && typeof (obj as { fillColor?: string }).fillColor === 'string'
     ? (obj as { fillColor: string }).fillColor
     : 'strokeColor' in obj && typeof (obj as { strokeColor?: string }).strokeColor === 'string'
@@ -39,7 +40,8 @@ function isInViewport(
   obj: BoardObject,
   viewport: Viewport,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  framesById?: FramesByIdMap
 ): boolean {
   const padding = 300
   const viewLeft = -viewport.x / viewport.scale - padding
@@ -47,7 +49,8 @@ function isInViewport(
   const viewRight = viewLeft + canvasWidth / viewport.scale + padding
   const viewBottom = viewTop + canvasHeight / viewport.scale + padding
 
-  const { left, top, right, bottom } = getObjectBounds(obj)
+  const bounds = framesById ? getObjectBoundsWorld(obj, framesById) : getObjectBounds(obj)
+  const { left, top, right, bottom } = bounds
   return left < viewRight && right > viewLeft && top < viewBottom && bottom > viewTop
 }
 import {
@@ -70,11 +73,12 @@ import {
   PenStrokePreview,
   EmojiShape,
   ArrowPreview,
+  FrameShape,
   type CurrentPenStroke,
 } from './shapes'
 
 export type ObjectResizeUpdates =
-  | { position: { x: number; y: number }; dimensions: { width: number; height: number } }
+  | { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
   | { start: { x: number; y: number }; end: { x: number; y: number } }
 
 interface ObjectLayerProps {
@@ -85,7 +89,7 @@ interface ObjectLayerProps {
   selectedIds: Set<string>
   isPointerTool: boolean
   onObjectDragEnd: (objectId: string, x: number, y: number) => void
-  onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void
+  onObjectClick: (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => void
   onObjectResizeEnd?: (objectId: string, updates: ObjectResizeUpdates) => void
   onStickyDoubleClick: (objectId: string) => void
   onTextDoubleClick: (objectId: string) => void
@@ -126,9 +130,21 @@ function ObjectLayerInner({
   currentPenStroke,
   arrowPreview,
 }: ObjectLayerProps) {
+  const framesById = useMemo<FramesByIdMap>(() => {
+    const map: FramesByIdMap = {}
+    for (const o of Object.values(objects)) {
+      if (o.type === 'frame') map[o.objectId] = o as FramesByIdMap[string]
+    }
+    return map
+  }, [objects])
+
   const sortedObjects = useMemo(
     () =>
       Object.values(objects).sort((a, b) => {
+        const aIsFrame = a.type === 'frame'
+        const bIsFrame = b.type === 'frame'
+        if (aIsFrame && !bIsFrame) return -1
+        if (!aIsFrame && bIsFrame) return 1
         const aOrder = a.displayOrder ?? a.createdAt?.toMillis?.() ?? 0
         const bOrder = b.displayOrder ?? b.createdAt?.toMillis?.() ?? 0
         return aOrder - bOrder
@@ -138,9 +154,9 @@ function ObjectLayerInner({
 
   const visibleObjects = useMemo(
     () => sortedObjects.filter((obj) =>
-      isInViewport(obj, viewport, canvasWidth, canvasHeight)
+      isInViewport(obj, viewport, canvasWidth, canvasHeight, framesById)
     ),
-    [sortedObjects, viewport, canvasWidth, canvasHeight]
+    [sortedObjects, viewport, canvasWidth, canvasHeight, framesById]
   )
 
   const resizable = canEdit && onObjectResizeEnd
@@ -165,7 +181,7 @@ function ObjectLayerInner({
         const selected = selectedIds.has(obj.objectId)
         const resizableForObj = resizable && isResizableType(obj.type)
         if (isZoomedOut && shouldRenderSimplified(obj, isZoomedOut)) {
-          const { x, y, width, height, fill } = getSimplifiedRectProps(obj)
+          const { x, y, width, height, fill } = getSimplifiedRectProps(obj, framesById)
           return (
             <Rect
               key={obj.objectId}
@@ -179,6 +195,23 @@ function ObjectLayerInner({
             />
           )
         }
+        const displayPosition = isNestableType(obj.type) ? resolveWorldPos(obj, framesById) ?? undefined : undefined
+
+        if (obj.type === 'frame') {
+          return (
+            <FrameShape
+              key={obj.objectId}
+              obj={obj}
+              viewport={viewport}
+              canEdit={canEdit}
+              selected={selected}
+              isPointerTool={isPointerTool}
+              onObjectDragEnd={onObjectDragEnd}
+              onObjectClick={onObjectClick}
+              onObjectResizeEnd={resizable ? onObjectResizeEnd : undefined}
+            />
+          )
+        }
         if (obj.type === 'sticky') {
           return (
             <StickyShape
@@ -189,6 +222,7 @@ function ObjectLayerInner({
               selected={selected}
               isPointerTool={isPointerTool}
               showEffects={showEffects}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -205,6 +239,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -220,6 +255,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -235,6 +271,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -250,6 +287,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -265,6 +303,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -280,6 +319,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -295,6 +335,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -310,6 +351,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -325,6 +367,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -340,6 +383,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -355,6 +399,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -370,6 +415,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -410,6 +456,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
@@ -426,6 +473,7 @@ function ObjectLayerInner({
               canEdit={canEdit}
               selected={selected}
               isPointerTool={isPointerTool}
+              displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
             />
