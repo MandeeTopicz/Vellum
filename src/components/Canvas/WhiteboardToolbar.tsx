@@ -57,6 +57,8 @@ interface WhiteboardToolbarProps {
   canEdit: boolean
   /** Opens Templates modal and deselects active tool */
   onTemplatesClick?: () => void
+  /** Called when pen dropdown is opened (to reopen styling panel) */
+  onPenDropdownOpen?: () => void
 }
 
 export default function WhiteboardToolbar({
@@ -67,6 +69,7 @@ export default function WhiteboardToolbar({
   onRedo,
   canEdit,
   onTemplatesClick,
+  onPenDropdownOpen,
 }: WhiteboardToolbarProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
@@ -257,7 +260,10 @@ export default function WhiteboardToolbar({
           className={`toolbar-icon-btn ${['pen', 'highlighter', 'eraser'].includes(activeTool) ? 'active' : ''}`}
           onClick={() => {
             closeAllDropdowns()
-            setPenOpen((v) => !v)
+            setPenOpen((v) => {
+              if (!v) onPenDropdownOpen?.()
+              return !v
+            })
           }}
           disabled={!canEdit}
           title="Pen"
@@ -315,9 +321,8 @@ export default function WhiteboardToolbar({
         </button>
         {emojiOpen && (
           <div className="toolbar-dropdown-panel toolbar-emoji-panel">
-            <p className="toolbar-coming-soon">Emoji Picker Coming Soon</p>
             <div className="toolbar-emoji-preview">
-              {['😀', '👍', '❤️', '🔥', '⭐'].map((e) => (
+              {['😀', '😊', '😂', '👍', '👎', '❤️', '💡', '🔥', '⭐', '✅', '❌', '💬', '📌', '📝', '🎯', '🚀', '💪', '👏'].map((e) => (
                 <button
                   key={e}
                   type="button"

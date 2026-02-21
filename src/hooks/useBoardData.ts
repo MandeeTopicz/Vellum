@@ -241,7 +241,7 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   )
 
   const handleRedo = useCallback(async () => {
-    const action = redoStackRef.current.pop()
+    const action = redoStackRef.current.shift()
     if (!action || !id || !canEdit) return
     try {
       if (action.type === 'create') {
@@ -260,7 +260,7 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
       saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
     } catch (err) {
       console.error('[redo]', err)
-      redoStackRef.current.push(action)
+      redoStackRef.current.unshift(action)
     }
   }, [id, canEdit])
 

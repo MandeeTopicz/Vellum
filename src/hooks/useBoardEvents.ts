@@ -35,6 +35,9 @@ import type { useBoardTools } from './useBoardTools'
 
 const MOUSE_MOVE_THROTTLE_MS = 16
 
+/** Pen, highlighter, eraser stay selected until user manually picks another tool */
+const PERSISTENT_DRAWING_TOOLS = ['pen', 'highlighter', 'eraser'] as const
+
 type Data = ReturnType<typeof useBoardData>
 type Tools = ReturnType<typeof useBoardTools>
 
@@ -73,11 +76,19 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     copiedObjects,
     setCopiedObjects,
     setTemplatesModalOpen,
+    setPenStylesOpen,
   } = tools
 
   const containerRef = data.containerRef
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
+
+  /** Switch to pointer only if current tool is not pen/highlighter/eraser */
+  const maybeSwitchToPointer = useCallback(() => {
+    if (!PERSISTENT_DRAWING_TOOLS.includes(activeTool as (typeof PERSISTENT_DRAWING_TOOLS)[number])) {
+      setActiveTool('pointer')
+    }
+  }, [activeTool, setActiveTool])
   const handleTextCommitRef = useRef<(value: string) => Promise<void>>(async () => {})
 
   const dragUpdateQueueRef = useRef<Map<string, PositionUpdate>>(new Map())
@@ -96,7 +107,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
         setSelectedIds(new Set())
         setCommentModalPos(null)
         setCommentThread(null)
@@ -172,7 +183,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, setActiveTool, setSelectedIds, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
+  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, maybeSwitchToPointer, setSelectedIds, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
 
   const getViewportCenter = useCallback(() => {
     const w = dimensions.width
@@ -382,9 +393,9 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       const ids = objectsInSelectionRect(objects, rect, framesById)
       setSelectedIds(new Set(ids))
-      setActiveTool('pointer')
+      maybeSwitchToPointer()
     },
-    [objects, setSelectedIds, setActiveTool]
+    [objects, setSelectedIds, maybeSwitchToPointer]
   )
 
   const handleObjectClick = useCallback(
@@ -462,7 +473,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           pushUndo({ type: 'create', objectId, createInput })
         }
         setSelectedIds(new Set(result.createdItems.map((c) => c.objectId)))
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
         const positions = result.createdItems
           .map((c) => ('position' in c.createInput ? c.createInput.position : null))
           .filter((p): p is { x: number; y: number } => p != null)
@@ -478,7 +489,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       return { success: true, message: result.message }
     },
-    [id, canEdit, objects, pushUndo, dimensions, data, setSelectedIds, setActiveTool]
+    [id, canEdit, objects, pushUndo, dimensions, data, setSelectedIds, maybeSwitchToPointer]
   )
 
   const handleBackgroundClick = useCallback(
@@ -486,7 +497,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       if (activeTool === 'pointer' && (justClosedStickyEditorRef.current || justClosedTextEditorRef.current)) {
         justClosedStickyEditorRef.current = false
         justClosedTextEditorRef.current = false
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
         setSelectedIds(new Set())
         return
       }
@@ -497,7 +508,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         }
         setEditingStickyId(null)
         setEditingText(null)
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
         setSelectedIds(new Set())
         return
       }
@@ -596,7 +607,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
             setEditingStickyId(objectId)
           } else {
             setSelectedIds(new Set([objectId]))
-            setActiveTool('pointer')
+            maybeSwitchToPointer()
           }
         }
       }
@@ -622,10 +633,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         const objectId = await createObject(id, input)
         pushUndo({ type: 'create', objectId, createInput: input })
         setSelectedIds(new Set([objectId]))
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
       }
     },
-    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects, setObjects]
+    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects, setObjects, maybeSwitchToPointer]
   )
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
@@ -680,7 +691,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         if (trimmed === '') {
           setEditingText(null)
           justClosedTextEditorRef.current = true
-          setActiveTool('pointer')
+          maybeSwitchToPointer()
           return
         }
         const input = {
@@ -702,17 +713,17 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       justClosedTextEditorRef.current = true
       setEditingText(null)
-      setActiveTool('pointer')
+      maybeSwitchToPointer()
     },
-    [id, canEdit, editingText, objects, pushUndo, setObjects]
+    [id, canEdit, editingText, objects, pushUndo, setObjects, maybeSwitchToPointer]
   )
   handleTextCommitRef.current = handleTextCommit
 
   const handleTextCancel = useCallback(() => {
     setEditingText(null)
     justClosedTextEditorRef.current = true
-    setActiveTool('pointer')
-  }, [setEditingText, setActiveTool])
+    maybeSwitchToPointer()
+  }, [setEditingText, maybeSwitchToPointer])
 
   const handleTextFormatChange = useCallback(
     (updates: Partial<typeof DEFAULT_TEXT_STYLE>) => {
@@ -818,8 +829,9 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     const objectId = await createObject(id, input)
     pushUndo({ type: 'create', objectId, createInput: input })
     setSelectedIds(new Set([objectId]))
-    setActiveTool('pointer')
-  }, [id, canEdit, activeTool, penStyles, pushUndo])
+    maybeSwitchToPointer()
+    setPenStylesOpen(false)
+  }, [id, canEdit, activeTool, penStyles, pushUndo, maybeSwitchToPointer, setPenStylesOpen])
 
   const handleArrowDragStart = useCallback(
     (pos: { x: number; y: number }) => {
@@ -858,9 +870,9 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       const objectId = await createObject(id, input)
       pushUndo({ type: 'create', objectId, createInput: input })
       setSelectedIds(new Set([objectId]))
-      setActiveTool('pointer')
+      maybeSwitchToPointer()
     },
-    [id, canEdit, arrowPreview, pushUndo]
+    [id, canEdit, arrowPreview, pushUndo, maybeSwitchToPointer]
   )
 
   const handleEraserMove = useCallback(
@@ -875,12 +887,13 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           if (dist < eraserRadius) {
             pushUndo({ type: 'delete', objectId: penObj.objectId, deleted: penObj })
             deleteObject(id, penObj.objectId)
+            setPenStylesOpen(false)
             return
           }
         }
       }
     },
-    [id, canEdit, eraserActive, objects, penStyles.size, pushUndo]
+    [id, canEdit, eraserActive, objects, penStyles.size, pushUndo, setPenStylesOpen]
   )
 
   const handleBoardNameChange = useCallback(
@@ -1018,11 +1031,11 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       if (opts?.selectAndGroup && newIds.length > 0) {
         setSelectedIds(new Set(newIds))
-        setActiveTool('pointer')
+        maybeSwitchToPointer()
       }
       return newIds
     },
-    [id, canEdit, getViewportCenter, pushUndo, setSelectedIds, setActiveTool]
+    [id, canEdit, getViewportCenter, pushUndo, setSelectedIds, maybeSwitchToPointer]
   )
 
   /** Inserts a structural format template (Doc/Kanban/Table/Timeline/Flow Chart/Slides) at viewport center. */
@@ -1140,7 +1153,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         const ids = createdItems.map((item) => item.objectId)
         if (ids.length > 0) {
           setSelectedIds(new Set(ids))
-          setActiveTool('pointer')
+          maybeSwitchToPointer()
         }
         return ids
       } catch (err) {
@@ -1148,7 +1161,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         return []
       }
     },
-    [id, canEdit, objects, getViewportCenter, pushUndo, setSelectedIds, setActiveTool]
+    [id, canEdit, objects, getViewportCenter, pushUndo, setSelectedIds, maybeSwitchToPointer]
   )
 
   /** Inserts template by key: composed first, else format-structure fallback. */

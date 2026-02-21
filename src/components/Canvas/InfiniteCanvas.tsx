@@ -359,7 +359,7 @@ function InfiniteCanvas({
   )
 
   const handleMouseUp = useCallback(
-    (e?: Konva.KonvaEventObject<MouseEvent>) => {
+    (_e?: Konva.KonvaEventObject<MouseEvent>) => {
       if (isRightDragSelectingRef.current) {
         return
       }

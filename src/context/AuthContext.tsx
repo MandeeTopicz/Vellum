@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { User } from 'firebase/auth'
-import { subscribeToAuth } from '../services/firebase'
+import { subscribeToAuth, handleGoogleRedirectResult } from '../services/firebase'
 
 interface AuthContextValue {
   user: User | null
@@ -20,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    handleGoogleRedirectResult().catch(() => {})
     const unsubscribe = subscribeToAuth((u) => {
       setUser(u)
       setLoading(false)

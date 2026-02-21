@@ -209,6 +209,7 @@ export default function BoardPage() {
           onUndo={handleUndo}
           onRedo={handleRedo}
           canEdit={canEdit}
+          onPenDropdownOpen={() => tools.setPenStylesOpen(true)}
           onTemplatesClick={
             canEdit
               ? () => {
@@ -219,13 +220,14 @@ export default function BoardPage() {
           }
         />
 
-        {(tools.activeTool === 'pen' || tools.activeTool === 'highlighter' || tools.activeTool === 'eraser') && (
-          <PenStylingToolbar
-            penStyles={tools.penStyles}
-            onPenStylesChange={tools.handlePenStylesChange}
-            activeTool={tools.activeTool}
-          />
-        )}
+        {(tools.activeTool === 'pen' || tools.activeTool === 'highlighter' || tools.activeTool === 'eraser') &&
+          tools.penStylesOpen && (
+            <PenStylingToolbar
+              penStyles={tools.penStyles}
+              onPenStylesChange={tools.handlePenStylesChange}
+              activeTool={tools.activeTool}
+            />
+          )}
 
         <WhiteboardControls
           showGrid={tools.showGrid}
@@ -251,7 +253,6 @@ export default function BoardPage() {
               currentFormat={tools.editingText.textStyle}
               position={{ x: tools.editingText.screenX, y: tools.editingText.screenY }}
               onFormatChange={events.handleTextFormatChange}
-              onCreateMindMap={events.handleCreateMindMap}
             />
             <TextOverlayTextarea
               editingText={tools.editingText}
@@ -283,7 +284,7 @@ export default function BoardPage() {
         {tools.selectedIds.size >= 1 && canEdit && (() => {
           const selectedIds = Array.from(tools.selectedIds)
           const obj = objects[selectedIds[0]] as BoardObject | undefined
-          if (!obj) return null
+          if (!obj || obj.type === 'pen') return null
           const objs = selectedIds.map((id) => objects[id]).filter(Boolean) as BoardObject[]
           let centerX = 0
           let topY = 0

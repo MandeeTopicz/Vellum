@@ -1,6 +1,6 @@
 /**
  * TextFormatToolbar – formatting controls shown above text box when editing.
- * Provides color picker, font, size, bold, bullet list, mind map, alignment.
+ * Provides color picker, font, size, bold, bullet list, alignment.
  */
 import { useState, useEffect, useRef } from 'react'
 import {
@@ -9,7 +9,6 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  Network,
   ChevronDown,
 } from 'lucide-react'
 import type { TextStyle } from '../../types/objects'
@@ -20,7 +19,6 @@ interface TextFormatToolbarProps {
   currentFormat: TextStyle
   position: { x: number; y: number }
   onFormatChange: (updates: Partial<TextStyle>) => void
-  onCreateMindMap: () => void
 }
 
 const FONTS = [
@@ -53,7 +51,6 @@ export default function TextFormatToolbar({
   currentFormat,
   position,
   onFormatChange,
-  onCreateMindMap,
 }: TextFormatToolbarProps) {
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showFontDropdown, setShowFontDropdown] = useState(false)
@@ -255,19 +252,6 @@ export default function TextFormatToolbar({
         title="Bullet List"
       >
         <List size={20} strokeWidth={2} />
-      </button>
-
-      <button
-        type="button"
-        className="toolbar-button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onCreateMindMap()
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-        title="Convert to Mind Map"
-      >
-        <Network size={20} strokeWidth={2} />
       </button>
 
       <div className="toolbar-section alignment-buttons">

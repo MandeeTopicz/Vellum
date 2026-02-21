@@ -34,7 +34,9 @@ function renderPenStroke(
     perfectDrawEnabled: false,
   }
   if (strokeType === 'dotted') {
-    return <Line {...baseProps} dash={[5, 5]} />
+    const gap = Math.max(strokeWidth * 0.8, 4)
+    const dash = Math.max(strokeWidth * 0.4, 2)
+    return <Line {...baseProps} dash={[dash, gap]} />
   }
   if (strokeType === 'double') {
     const offset = strokeWidth * 0.4

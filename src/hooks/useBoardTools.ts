@@ -60,6 +60,7 @@ export function useBoardTools(canEdit: boolean) {
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false)
   const [templatesSearch, setTemplatesSearch] = useState('')
   const [templatesCategory, setTemplatesCategory] = useState('Meetings & Workshops')
+  const [penStylesOpen, setPenStylesOpen] = useState(true)
 
   const currentPenPointsRef = useRef<[number, number][]>([])
   const justClosedStickyEditorRef = useRef(false)
@@ -98,6 +99,9 @@ export function useBoardTools(canEdit: boolean) {
     justClosedTextEditorRef.current = false
     setArrowPreview(null)
     setActiveToolState(tool)
+    if (['pen', 'highlighter', 'eraser'].includes(tool)) {
+      setPenStylesOpen(true)
+    }
   }, [])
 
   const handlePenStylesChange = useCallback(
@@ -180,5 +184,7 @@ export function useBoardTools(canEdit: boolean) {
     setTemplatesSearch,
     templatesCategory,
     setTemplatesCategory,
+    penStylesOpen,
+    setPenStylesOpen,
   }
 }
