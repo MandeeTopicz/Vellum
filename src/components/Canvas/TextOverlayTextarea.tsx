@@ -18,6 +18,8 @@ interface TextOverlayTextareaProps {
   editingText: EditingTextState
   onCommit: (value: string) => void
   onCancel: () => void
+  /** Called on every change so parent can track value for commit-before-close */
+  onValueChange?: (value: string) => void
 }
 
 /**
@@ -29,6 +31,7 @@ export default function TextOverlayTextarea({
   editingText,
   onCommit,
   onCancel,
+  onValueChange,
 }: TextOverlayTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -77,6 +80,7 @@ export default function TextOverlayTextarea({
         ref={textareaRef}
         defaultValue={editingText.value}
         placeholder="Text"
+        onChange={(e) => onValueChange?.(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}

@@ -65,6 +65,8 @@ export function useBoardTools(canEdit: boolean) {
   const justClosedStickyEditorRef = useRef(false)
   const justClosedTextEditorRef = useRef(false)
   const justFinishedArrowDragRef = useRef(false)
+  /** Holds current textarea value while editing; used to commit before closing on background click */
+  const textareaValueRef = useRef('')
 
   const penDrawingActive = (activeTool === 'pen' || activeTool === 'highlighter') && canEdit
   const eraserActive = activeTool === 'eraser' && canEdit
@@ -167,6 +169,7 @@ export function useBoardTools(canEdit: boolean) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    textareaValueRef,
     copiedObjects,
     setCopiedObjects,
     contextMenuPos,

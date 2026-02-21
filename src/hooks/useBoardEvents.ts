@@ -69,6 +69,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    textareaValueRef,
     copiedObjects,
     setCopiedObjects,
     setTemplatesModalOpen,
@@ -77,6 +78,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   const containerRef = data.containerRef
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
+  const handleTextCommitRef = useRef<(value: string) => Promise<void>>(async () => {})
 
   const dragUpdateQueueRef = useRef<Map<string, PositionUpdate>>(new Map())
   const flushDragUpdates = useMemo(
@@ -489,6 +491,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         return
       }
       if (editingStickyId || editingText) {
+        if (editingText) {
+          const value = textareaValueRef.current ?? editingText.value
+          await handleTextCommitRef.current(value)
+        }
         setEditingStickyId(null)
         setEditingText(null)
         setActiveTool('pointer')
@@ -510,6 +516,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       if (activeTool === 'text' && canEdit) {
         const { clientX, clientY } = payload
         if (clientX != null && clientY != null) {
+          textareaValueRef.current = ''
           setEditingText({
             id: null,
             screenX: clientX,
@@ -632,17 +639,19 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       const obj = objects[objectId]
       if (!obj || obj.type !== 'text') return
       const textObj = obj as TextObject
+      const content = textObj.content ?? ''
       const stage = canvasToStage(obj.position.x, obj.position.y, viewport)
       const rect = containerRef.current?.getBoundingClientRect()
       const screenX = rect ? rect.left + stage.x : stage.x
       const screenY = rect ? rect.top + stage.y : stage.y
+      textareaValueRef.current = content
       setEditingText({
         id: objectId,
         screenX,
         screenY,
         canvasX: obj.position.x,
         canvasY: obj.position.y,
-        value: textObj.content ?? '',
+        value: content,
         isNew: false,
         textStyle: { ...DEFAULT_TEXT_STYLE, ...textObj.textStyle },
       })
@@ -697,6 +706,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     },
     [id, canEdit, editingText, objects, pushUndo, setObjects]
   )
+  handleTextCommitRef.current = handleTextCommit
 
   const handleTextCancel = useCallback(() => {
     setEditingText(null)
@@ -710,7 +720,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       const newStyle = { ...editingText.textStyle, ...updates }
       setEditingText({ ...editingText, textStyle: newStyle })
       if (!editingText.isNew && editingText.id) {
-        updateObject(id, editingText.id, { textStyle: updates })
+        updateObject(id, editingText.id, { textStyle: newStyle })
       }
     },
     [id, editingText]

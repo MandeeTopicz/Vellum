@@ -153,6 +153,7 @@ function InfiniteCanvas({
   const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const isRightDragSelectingRef = useRef(false)
   const selectionBoxRef = useRef<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
+  const selectionDocListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null)
 
   const throttledViewportChange = useMemo(
     () => throttle((v: Viewport) => onViewportChange(v), 16),
@@ -162,6 +163,11 @@ function InfiniteCanvas({
   useEffect(
     () => () => {
       if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+      if (selectionDocListenersRef.current) {
+        document.removeEventListener('mousemove', selectionDocListenersRef.current.move)
+        document.removeEventListener('mouseup', selectionDocListenersRef.current.up)
+        selectionDocListenersRef.current = null
+      }
     },
     []
   )
@@ -177,6 +183,21 @@ function InfiniteCanvas({
     const pos = stage.getPointerPosition()
     if (!pos) return null
     return stageToCanvas(pos.x, pos.y, viewportRef.current)
+  }, [])
+
+  /**
+   * Convert DOM client coords to canvas coords. Used during right-drag selection
+   * so we keep tracking when the pointer leaves the stage (getPointerPosition returns null).
+   */
+  const clientToCanvas = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
+    const stage = stageRef.current
+    if (!stage) return null
+    const container = stage.container()
+    if (!container) return null
+    const rect = container.getBoundingClientRect()
+    const stageX = clientX - rect.left
+    const stageY = clientY - rect.top
+    return stageToCanvas(stageX, stageY, viewportRef.current)
   }, [])
 
   const handleWheel = useCallback(
@@ -233,6 +254,44 @@ function InfiniteCanvas({
         const box = { startX: canvasPos.x, startY: canvasPos.y, endX: canvasPos.x, endY: canvasPos.y }
         selectionBoxRef.current = box
         setSelectionBox(box)
+
+        const docMove = (evt: MouseEvent) => {
+          const pos = clientToCanvas(evt.clientX, evt.clientY)
+          if (pos && selectionBoxRef.current) {
+            const next = { ...selectionBoxRef.current, endX: pos.x, endY: pos.y }
+            selectionBoxRef.current = next
+            setSelectionBox(next)
+          }
+        }
+        const docUp = (evt: MouseEvent) => {
+          if (selectionDocListenersRef.current) {
+            document.removeEventListener('mousemove', selectionDocListenersRef.current.move)
+            document.removeEventListener('mouseup', selectionDocListenersRef.current.up)
+            selectionDocListenersRef.current = null
+          }
+          isRightDragSelectingRef.current = false
+          const prev = selectionBoxRef.current
+          setSelectionBox(null)
+          selectionBoxRef.current = null
+          if (prev) {
+            const left = Math.min(prev.startX, prev.endX)
+            const right = Math.max(prev.startX, prev.endX)
+            const top = Math.min(prev.startY, prev.endY)
+            const bottom = Math.max(prev.startY, prev.endY)
+            const dx = right - left
+            const dy = bottom - top
+            const minDrag = 5
+            if ((dx >= minDrag || dy >= minDrag) && onSelectionBoxEnd) {
+              onSelectionBoxEnd({ left, top, right, bottom })
+            } else if (onContextMenu) {
+              onContextMenu({ clientX: evt.clientX, clientY: evt.clientY })
+            }
+          }
+        }
+        const listeners = { move: docMove, up: docUp }
+        selectionDocListenersRef.current = listeners
+        document.addEventListener('mousemove', docMove)
+        document.addEventListener('mouseup', docUp)
         return
       }
       if (!isBackground) return
@@ -267,7 +326,7 @@ function InfiniteCanvas({
         }
       }
     },
-    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, onPanningChange, getCanvasPos, onSelectionBoxEnd]
+    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, onPanningChange, getCanvasPos, onSelectionBoxEnd, onContextMenu, clientToCanvas]
   )
 
   const handleMouseMovePan = useCallback(
@@ -302,25 +361,6 @@ function InfiniteCanvas({
   const handleMouseUp = useCallback(
     (e?: Konva.KonvaEventObject<MouseEvent>) => {
       if (isRightDragSelectingRef.current) {
-        isRightDragSelectingRef.current = false
-        const prev = selectionBoxRef.current
-        setSelectionBox(null)
-        selectionBoxRef.current = null
-        if (prev) {
-          const left = Math.min(prev.startX, prev.endX)
-          const right = Math.max(prev.startX, prev.endX)
-          const top = Math.min(prev.startY, prev.endY)
-          const bottom = Math.max(prev.startY, prev.endY)
-          const dx = right - left
-          const dy = bottom - top
-          const minDrag = 5
-          if ((dx >= minDrag || dy >= minDrag) && onSelectionBoxEnd) {
-            onSelectionBoxEnd({ left, top, right, bottom })
-          } else if (onContextMenu && e?.evt) {
-            const evt = e.evt as MouseEvent
-            onContextMenu({ clientX: evt.clientX, clientY: evt.clientY })
-          }
-        }
         return
       }
       if (isArrowDraggingRef.current && onArrowDragEnd) {
@@ -355,7 +395,7 @@ function InfiniteCanvas({
       onPanningChange?.(false)
     }
     },
-    [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd, onArrowDragEnd, onPanningChange, getCanvasPos, onSelectionBoxEnd, onContextMenu]
+    [isPanning, isPenDrawing, isEraserDragging, onViewportChange, onPenStrokeEnd, onArrowDragEnd, onPanningChange, getCanvasPos]
   )
 
   const combinedMouseMove = useCallback(

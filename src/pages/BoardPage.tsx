@@ -257,6 +257,7 @@ export default function BoardPage() {
               editingText={tools.editingText}
               onCommit={events.handleTextCommit}
               onCancel={events.handleTextCancel}
+              onValueChange={(v) => { tools.textareaValueRef.current = v }}
             />
           </>
         )}
