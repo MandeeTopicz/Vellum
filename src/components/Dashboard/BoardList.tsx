@@ -171,9 +171,6 @@ export default function BoardList({
       <div className="board-list-header">
         <h2 className="board-list-heading">Your Boards</h2>
         <div className="board-list-header-actions">
-          <button type="button" className="board-list-btn-secondary">
-            Explore templates
-          </button>
           <button type="button" className="board-list-btn-primary" onClick={onCreateBoard}>
             + Create new
           </button>

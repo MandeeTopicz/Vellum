@@ -329,8 +329,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           pushUndo({
             type: 'update',
             objectId: oid,
-            from: prevPos ? { position: { x: prevPos.x, y: prevPos.y }, parentId: prevParent } : {},
-            to: { position: { x: newLocalX, y: newLocalY }, parentId: newParentId },
+            from: prevPos
+              ? { position: { x: prevPos.x, y: prevPos.y }, parentId: prevParent ?? null, localX: prevPos.x, localY: prevPos.y }
+              : {},
+            to: { position: { x: newLocalX, y: newLocalY }, parentId: newParentId, localX: newLocalX, localY: newLocalY },
           })
           dragUpdateQueueRef.current.set(oid, positionUpdates[oid])
         }

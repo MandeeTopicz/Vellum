@@ -80,11 +80,14 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   const undoStackRef = useRef<UndoAction[]>([])
   const redoStackRef = useRef<UndoAction[]>([])
   const lastDimensionsRef = useRef({ width: 0, height: 0 })
+  const hasPushedUndoRef = useRef(false)
 
   useEffect(() => {
     if (!id) return
+    hasPushedUndoRef.current = false
     loadUndoStacks(id).then((stacks) => {
       if (!stacks) return
+      if (hasPushedUndoRef.current) return
       undoStackRef.current = (stacks.undoStack as UndoAction[]) ?? []
       redoStackRef.current = (stacks.redoStack as UndoAction[]) ?? []
     })
@@ -200,6 +203,7 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
 
   const pushUndo = useCallback(
     (action: UndoAction) => {
+      hasPushedUndoRef.current = true
       undoStackRef.current = undoStackRef.current.slice(-(MAX_STACK_SIZE - 1)).concat(action)
       redoStackRef.current = []
       if (id) saveUndoStacks(id, undoStackRef.current, redoStackRef.current)

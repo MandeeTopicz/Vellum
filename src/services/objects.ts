@@ -54,6 +54,7 @@ export type PositionUpdate = {
 export type ObjectUpdates =
   | { position: { x: number; y: number } }
   | { parentId: string | null; localX: number; localY: number }
+  | { position: { x: number; y: number }; parentId: string | null; localX: number; localY: number }
   | { dimensions: { width: number; height: number } }
   | { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
   | { start: { x: number; y: number }; end: { x: number; y: number } }

@@ -3,16 +3,18 @@ import { useNavigate } from 'react-router-dom'
 import { signOut } from '../../services/firebase'
 import { subscribeToBoardsForUser, createBoard, deleteBoard, getBoard } from '../../services/board'
 import { getMyPendingInvites } from '../../services/invites'
+import { insertTemplateIntoBoard } from '../../services/templateInsert'
 import type { Board } from '../../types'
 import type { BoardInvite } from '../../types'
 import { useAuth } from '../../context/AuthContext'
 import BoardList from './BoardList'
 import AITemplateGenerator from './AITemplateGenerator'
 import CreateBoardModal from './CreateBoardModal'
+import TemplatePreviewThumbnail from '../Canvas/TemplatePreviewThumbnail'
 import InviteModal from '../Invite/InviteModal'
 import NotificationsDropdown from './NotificationsDropdown'
-import AccountDropdown from './AccountDropdown'
 import Sidebar from './Sidebar'
+import '../Canvas/TemplatesModal.css'
 import './Dashboard.css'
 
 export default function Dashboard() {
@@ -25,6 +27,32 @@ export default function Dashboard() {
   const [shareBoardId, setShareBoardId] = useState<string | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const [templateCreating, setTemplateCreating] = useState<string | null>(null)
+
+  const DASHBOARD_TEMPLATES = [
+    { id: 'project-review', title: 'Project Review' },
+    { id: 'kanban-board', title: 'Kanban' },
+    { id: 'swot', title: 'SWOT Analysis' },
+    { id: 'journeyMap', title: 'Journey Map' },
+    { id: 'retrospective', title: 'Retrospective' },
+    { id: 'mind-map', title: 'Mind Map' },
+  ] as const
+
+  async function handleTemplateClick(templateKey: string) {
+    try {
+      setTemplateCreating(templateKey)
+      const template = DASHBOARD_TEMPLATES.find((t) => t.id === templateKey)
+      const boardName = template?.title ?? 'Untitled Board'
+      const id = await createBoard(boardName)
+      await insertTemplateIntoBoard(id, templateKey)
+      navigate(`/board/${id}`)
+    } catch (err) {
+      console.error('[Dashboard] template create failed:', err)
+      alert(err instanceof Error ? err.message : 'Failed to create board')
+    } finally {
+      setTemplateCreating(null)
+    }
+  }
 
   useEffect(() => {
     if (!user?.uid) {
@@ -101,7 +129,6 @@ export default function Dashboard() {
             onReject={() => getMyPendingInvites().then(setPendingInvites)}
             onRefresh={() => getMyPendingInvites().then(setPendingInvites)}
           />
-          <AccountDropdown />
           <button type="button" className="dashboard-logout" onClick={() => signOut()}>
             Log Out
           </button>
@@ -124,28 +151,42 @@ export default function Dashboard() {
         </section>
 
         <section className="dashboard-template-section">
-          <div className="dashboard-template-row">
-            <button
-              type="button"
-              className="dashboard-template-blank"
-              onClick={() => setCreateBoardOpen(true)}
-            >
-              <span className="dashboard-template-blank-icon">+</span>
-              <span className="dashboard-template-blank-text">Start from Scratch</span>
-            </button>
-            <div className="dashboard-template-recent">
-              <h3 className="dashboard-template-recent-title">Recently Used Templates</h3>
-              <div className="dashboard-template-tiles">
-                {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="dashboard-template-tile-slot" aria-hidden />
-                ))}
-              </div>
-              <p className="dashboard-template-recent-message">
-                {!loading && (boardsData.owned.length > 0 || boardsData.shared.length > 0)
-                  ? "Templates coming soon – we're building AI-powered templates for you"
-                  : 'No templates yet – create your first board to get started!'}
-              </p>
+          <div className="dashboard-template-wrap">
+            <div className="dashboard-template-tile">
+            <h3 className="dashboard-template-section-title">Start with a template</h3>
+            <div className="dashboard-template-scroll">
+              <button
+                type="button"
+                className="dashboard-template-card dashboard-template-blank-card"
+                onClick={() => setCreateBoardOpen(true)}
+              >
+                <div className="dashboard-template-card-preview">
+                  <span className="dashboard-template-blank-icon">+</span>
+                </div>
+                <div className="dashboard-template-card-title">Start from scratch</div>
+              </button>
+              {DASHBOARD_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className="dashboard-template-card templates-modal-card"
+                  onClick={() => handleTemplateClick(template.id)}
+                  disabled={!!templateCreating}
+                >
+                  <div className="dashboard-template-card-preview templates-modal-card-preview">
+                    <TemplatePreviewThumbnail
+                      templateKey={template.id}
+                      width={160}
+                      height={100}
+                    />
+                  </div>
+                  <div className="dashboard-template-card-title templates-modal-card-title">
+                    {templateCreating === template.id ? 'Creating…' : template.title}
+                  </div>
+                </button>
+              ))}
             </div>
+          </div>
           </div>
         </section>
 
