@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff } from 'lucide-react'
-import { signIn, signUp, signInWithGoogleRedirect, handleGoogleRedirectResult } from '../services/firebase'
+import { signIn, signUp, signInWithGoogle } from '../services/firebase'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import './Login.css'
 
@@ -21,21 +21,19 @@ export default function Login() {
 
   useEffect(() => {
     if (!user) return
-    const redirectTo = sessionStorage.getItem('vellum:redirectAfterGoogle') || from
-    sessionStorage.removeItem('vellum:redirectAfterGoogle')
-    navigate(redirectTo, { replace: true })
+    navigate(from, { replace: true })
   }, [user, navigate, from])
 
   async function handleGoogleSignIn() {
     setError(null)
     setLoading(true)
     try {
-      sessionStorage.setItem('vellum:redirectAfterGoogle', from)
-      await signInWithGoogleRedirect()
+      await signInWithGoogle()
+      navigate(from, { replace: true })
     } catch (err) {
-      setLoading(false)
-      sessionStorage.removeItem('vellum:redirectAfterGoogle')
       setError(err instanceof Error ? err.message : 'Failed to sign in with Google')
+    } finally {
+      setLoading(false)
     }
   }
 

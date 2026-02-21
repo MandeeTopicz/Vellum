@@ -20,12 +20,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    handleGoogleRedirectResult().catch(() => {})
-    const unsubscribe = subscribeToAuth((u) => {
-      setUser(u)
-      setLoading(false)
-    })
-    return unsubscribe
+    let unsubscribe: (() => void) | null = null
+    const init = async () => {
+      try {
+        await handleGoogleRedirectResult()
+      } catch {
+        /* ignore - not returning from Google redirect */
+      }
+      unsubscribe = subscribeToAuth((u) => {
+        setUser(u)
+        setLoading(false)
+      })
+    }
+    init()
+    return () => {
+      unsubscribe?.()
+    }
   }, [])
 
   return (
