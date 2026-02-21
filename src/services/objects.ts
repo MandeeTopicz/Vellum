@@ -48,30 +48,33 @@ export type ObjectUpdates =
   | { start: { x: number; y: number }; end: { x: number; y: number } }
   | { content: string }
   | { fillColor: string }
-  | { strokeColor?: string; strokeWidth?: number }
+  | { strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted' }
+  | { opacity?: number }
+  | { cornerRadius?: number }
   | { connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
   | { emoji: string; fontSize?: number }
   | { textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
+  | { displayOrder?: number }
 
 /** Input for creating a new object (server adds createdBy, createdAt, updatedAt). Optional fields get defaults. */
 export type CreateObjectInput =
-  | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE>; cornerRadius?: number }
-  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; cornerRadius?: number }
-  | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; inverted?: boolean }
-  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
-  | { type: 'diamond'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'star'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'pentagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'hexagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'octagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'arrow'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; direction?: 'right' | 'left' }
-  | { type: 'plus'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'parallelogram'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; shapeKind: 'right' | 'left' }
-  | { type: 'cylinder'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; shapeKind: 'vertical' | 'horizontal' }
-  | { type: 'tab-shape'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'trapezoid'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
-  | { type: 'circle-cross'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number }
+  | { type: 'sticky'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE>; cornerRadius?: number; opacity?: number }
+  | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; cornerRadius?: number }
+  | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; inverted?: boolean }
+  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
+  | { type: 'diamond'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'star'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'pentagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'hexagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'octagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'arrow'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; direction?: 'right' | 'left' }
+  | { type: 'plus'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'parallelogram'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; shapeKind: 'right' | 'left' }
+  | { type: 'cylinder'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; shapeKind: 'vertical' | 'horizontal' }
+  | { type: 'tab-shape'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'trapezoid'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
+  | { type: 'circle-cross'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
   | { type: 'pen'; points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
@@ -94,6 +97,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
     createdBy: data.createdBy as string,
     createdAt: reviveTimestamp(data.createdAt),
     updatedAt: reviveTimestamp(data.updatedAt),
+    displayOrder: typeof data.displayOrder === 'number' ? data.displayOrder : undefined,
   }
   switch (type) {
     case 'sticky':
@@ -106,6 +110,7 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? '#fef08a',
         textStyle: (data.textStyle as StickyObject['textStyle']) ?? DEFAULT_TEXT_STYLE,
         cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
       }
     case 'rectangle':
       return {
@@ -116,6 +121,9 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeOpacity: typeof data.strokeOpacity === 'number' ? data.strokeOpacity : undefined,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         cornerRadius: typeof data.cornerRadius === 'number' ? data.cornerRadius : undefined,
       }
     case 'circle':
@@ -127,6 +135,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
       }
     case 'triangle':
       return {
@@ -137,6 +147,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         inverted: (data.inverted as boolean) ?? false,
       }
     case 'line':
@@ -147,6 +159,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         end: data.end as { x: number; y: number },
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         connectionType: (data.connectionType as 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-elbow-bidirectional' | 'arrow-double') ?? 'line',
       }
     case 'diamond':
@@ -161,6 +175,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
       }
     case 'star':
       return {
@@ -171,6 +187,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
       }
     case 'arrow':
       return {
@@ -181,6 +199,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         direction: (data.direction as 'right' | 'left') ?? 'right',
       }
     case 'plus':
@@ -195,6 +215,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
       }
     case 'parallelogram':
       return {
@@ -205,6 +227,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         shapeKind: (data.shapeKind as 'right' | 'left') ?? 'right',
       }
     case 'cylinder':
@@ -216,6 +240,8 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         fillColor: (data.fillColor as string) ?? 'transparent',
         strokeColor: (data.strokeColor as string) ?? '#000000',
         strokeWidth: (data.strokeWidth as number) ?? 2,
+        strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
+        opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
         shapeKind: (data.shapeKind as 'vertical' | 'horizontal') ?? 'vertical',
       }
     case 'pen': {
@@ -284,6 +310,17 @@ export function subscribeToObjects(boardId: string, callback: (objects: ObjectsM
 }
 
 /**
+ * Fetches all objects for a board once (no realtime subscription).
+ * Used for preview thumbnails on the dashboard.
+ * @param boardId - The board ID
+ * @returns Promise resolving to array of board objects
+ */
+export async function getBoardObjectsOnce(boardId: string): Promise<BoardObject[]> {
+  const snapshot = await getDocs(objectsCol(boardId))
+  return snapshot.docs.map((d) => docToObject(boardId, d.id, d.data() as Record<string, unknown>))
+}
+
+/**
  * Creates a new object on the whiteboard.
  * @param boardId - The board ID
  * @param input - Object type and properties (position, dimensions, content, etc.)
@@ -330,7 +367,12 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
   if (input.type === 'pen') {
     docData.points = input.points.flat()
   }
-  const ref = await addDoc(objectsCol(boardId), docData)
+  /** Firestore rejects undefined - strip keys with undefined values */
+  const sanitized: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(docData)) {
+    if (v !== undefined) sanitized[k] = v
+  }
+  const ref = await addDoc(objectsCol(boardId), sanitized)
   return ref.id
 }
 

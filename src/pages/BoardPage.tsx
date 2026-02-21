@@ -20,7 +20,14 @@ import TextOverlayTextarea from '../components/Canvas/TextOverlayTextarea'
 import TextFormatToolbar from '../components/Canvas/TextFormatToolbar'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
+import { StyleToolbar } from '../components/Canvas/StyleToolbar'
+import { ContextMenu } from '../components/Canvas/ContextMenu'
+import { TemplatesModal } from '../components/Canvas/TemplatesModal'
 import InviteModal from '../components/Invite/InviteModal'
+import { canvasToStage } from '../components/Canvas/InfiniteCanvas'
+import { stageToCanvas } from '../utils/coordinates'
+import type { BoardObject } from '../types'
+import type { ObjectUpdates } from '../services/objects'
 import { useBoardData } from '../hooks/useBoardData'
 import { useBoardTools } from '../hooks/useBoardTools'
 import { useBoardEvents } from '../hooks/useBoardEvents'
@@ -52,7 +59,7 @@ export default function BoardPage() {
     canEdit,
     pendingInvite,
     viewport,
-    setViewport,
+    setViewport: _setViewport,
     onViewportChange,
     dimensions,
     containerRef,
@@ -166,6 +173,8 @@ export default function BoardPage() {
           onArrowDragEnd={events.handleArrowDragEnd}
           onZoomingChange={setIsZooming}
           onPanningChange={setIsPanning}
+          onContextMenu={(p) => tools.setContextMenuPos({ x: p.clientX, y: p.clientY })}
+          onSelectionBoxEnd={canEdit ? events.handleSelectionBoxEnd : undefined}
         >
           <ObjectLayer
             objects={objects}
@@ -200,6 +209,14 @@ export default function BoardPage() {
           onUndo={handleUndo}
           onRedo={handleRedo}
           canEdit={canEdit}
+          onTemplatesClick={
+            canEdit
+              ? () => {
+                  tools.setTemplatesModalOpen(true)
+                  tools.handleToolSelect('pointer')
+                }
+              : undefined
+          }
         />
 
         {(tools.activeTool === 'pen' || tools.activeTool === 'highlighter' || tools.activeTool === 'eraser') && (
@@ -261,6 +278,125 @@ export default function BoardPage() {
           onDelete={events.handleCommentDelete}
           onClose={() => tools.setCommentThread(null)}
         />
+
+        {tools.selectedIds.size >= 1 && canEdit && (() => {
+          const selectedIds = Array.from(tools.selectedIds)
+          const obj = objects[selectedIds[0]] as BoardObject | undefined
+          if (!obj) return null
+          const objs = selectedIds.map((id) => objects[id]).filter(Boolean) as BoardObject[]
+          let centerX = 0
+          let topY = 0
+          const getCenterAndTop = (o: BoardObject): { x: number; y: number } => {
+            if ('position' in o && o.position) {
+              const dims = 'dimensions' in o ? (o.dimensions ?? { width: 0, height: 0 }) : { width: 0, height: 0 }
+              return { x: o.position.x + dims.width / 2, y: o.position.y }
+            }
+            if (o.type === 'line') {
+              const line = o as { start: { x: number; y: number }; end: { x: number; y: number } }
+              return { x: (line.start.x + line.end.x) / 2, y: Math.min(line.start.y, line.end.y) }
+            }
+            if (o.type === 'pen' && 'points' in o) {
+              const pts = (o as { points: [number, number][] }).points
+              if (pts.length === 0) return { x: 0, y: 0 }
+              const xs = pts.map((p) => p[0])
+              const ys = pts.map((p) => p[1])
+              return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...ys) }
+            }
+            return { x: 0, y: 0 }
+          }
+          if (objs.length === 1) {
+            const { x, y } = getCenterAndTop(objs[0])
+            centerX = x
+            topY = y
+          } else {
+            let minX = Infinity
+            let minY = Infinity
+            let maxX = -Infinity
+            let maxY = -Infinity
+            objs.forEach((o) => {
+              if ('position' in o && o.position && 'dimensions' in o) {
+                const pos = o.position
+                const dims = (o.dimensions ?? { width: 0, height: 0 }) as { width: number; height: number }
+                minX = Math.min(minX, pos.x)
+                minY = Math.min(minY, pos.y)
+                maxX = Math.max(maxX, pos.x + dims.width)
+                maxY = Math.max(maxY, pos.y + dims.height)
+              } else if (o.type === 'line') {
+                const line = o as { start: { x: number; y: number }; end: { x: number; y: number } }
+                minX = Math.min(minX, line.start.x, line.end.x)
+                minY = Math.min(minY, line.start.y, line.end.y)
+                maxX = Math.max(maxX, line.start.x, line.end.x)
+                maxY = Math.max(maxY, line.start.y, line.end.y)
+              } else if (o.type === 'pen' && 'points' in o) {
+                const pts = (o as { points: [number, number][] }).points
+                pts.forEach((p) => {
+                  minX = Math.min(minX, p[0])
+                  minY = Math.min(minY, p[1])
+                  maxX = Math.max(maxX, p[0])
+                  maxY = Math.max(maxY, p[1])
+                })
+              }
+            })
+            centerX = (minX + maxX) / 2
+            topY = minY
+          }
+          const { x: stageX, y: stageY } = canvasToStage(centerX, topY, viewport)
+          return (
+            <StyleToolbar
+              selectedObject={obj}
+              onUpdate={(updates) => {
+                selectedIds.forEach((id) => events.handleObjectStyleUpdate(id, updates as ObjectUpdates))
+              }}
+              position={{ x: stageX, y: stageY }}
+              onCopy={events.handleCopy}
+              onPaste={events.handlePaste}
+              onDuplicate={events.handleDuplicate}
+              onDelete={events.handleDelete}
+              onSendToFront={events.handleSendToFront}
+              onBringToBack={events.handleBringToBack}
+              canPaste={tools.copiedObjects.length > 0}
+            />
+          )
+        })()}
+
+        {tools.templatesModalOpen && (
+          <TemplatesModal
+            isOpen={tools.templatesModalOpen}
+            onClose={() => tools.setTemplatesModalOpen(false)}
+            category={tools.templatesCategory}
+            onCategoryChange={tools.setTemplatesCategory}
+            search={tools.templatesSearch}
+            onSearchChange={tools.setTemplatesSearch}
+            onInsertTemplate={events.insertTemplateByKey}
+          />
+        )}
+
+        {tools.contextMenuPos && (() => {
+          const rect = containerRef.current?.getBoundingClientRect()
+          const pasteTargetCanvasPos =
+            rect != null
+              ? stageToCanvas(
+                  tools.contextMenuPos.x - rect.left,
+                  tools.contextMenuPos.y - rect.top,
+                  viewport
+                )
+              : undefined
+          return (
+            <ContextMenu
+              position={tools.contextMenuPos}
+              hasSelection={tools.selectedIds.size > 0}
+              canPaste={tools.copiedObjects.length > 0}
+              pasteTargetCanvasPos={pasteTargetCanvasPos}
+              onClose={() => tools.setContextMenuPos(null)}
+              onCopy={events.handleCopy}
+              onPaste={events.handlePaste}
+              onDuplicate={events.handleDuplicate}
+              onDelete={events.handleDelete}
+              onSendToFront={events.handleSendToFront}
+              onBringToBack={events.handleBringToBack}
+            />
+          )
+        })()}
 
         {tools.shareModalOpen && (
           <InviteModal

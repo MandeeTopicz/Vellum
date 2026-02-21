@@ -5,8 +5,140 @@
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import { firebaseApp } from './firebase'
 import type { CreateObjectInput } from './objects'
+import { deleteObject, batchUpdatePositions } from './objects'
 import type { BoardObject } from '../types'
-import { toContextObject, TOOL_HANDLERS } from './aiTools'
+import { toContextObject, TOOL_HANDLERS, executeCreateStickyGrid } from './aiTools'
+
+/** Trigger phrases for CLEAR_BOARD intent (case-insensitive substring match) */
+const CLEAR_BOARD_TRIGGERS = [
+  'clear board',
+  'clear the board',
+  'clear canvas',
+  'reset board',
+  'delete everything',
+  'delete all',
+  'remove all',
+  'remove everything',
+  'wipe the board',
+  'wipe canvas',
+  'erase everything',
+  'remove all elements',
+  'delete all objects',
+  'clear the whiteboard',
+  'clear all',
+]
+
+function isClearBoardIntent(prompt: string): boolean {
+  const lower = prompt.toLowerCase().trim()
+  return CLEAR_BOARD_TRIGGERS.some((phrase) => lower.includes(phrase))
+}
+
+const STICKY_WIDTH = 200
+const STICKY_HEIGHT = 160
+const DEFAULT_GAP_X = STICKY_WIDTH + 20
+const DEFAULT_GAP_Y = STICKY_HEIGHT + 20
+const MAX_STICKY_GRID = 300
+
+/** Result of parsing a sticky-grid intent */
+interface StickyGridParse {
+  rows: number
+  cols: number
+  total: number
+}
+
+/** Detects and parses CREATE_STICKY_GRID intent from prompt. Returns parsed params or null. */
+function parseStickyGridIntent(prompt: string): StickyGridParse | null {
+  const lower = prompt.toLowerCase().trim()
+  const hasSticky = /\bsticky|stickies|notes?\b/i.test(prompt)
+  const hasGridHint =
+    /\bgrid\b|rows?|columns?|cols?\b|\d+\s*[x×]\s*\d+/.test(lower)
+  if (!hasSticky || !hasGridHint) return null
+
+  let rows: number | null = null
+  let cols: number | null = null
+  let total: number | null = null
+
+  // "10 rows of 10 columns" / "10 rows and 10 columns" / "10 rows, 10 columns"
+  const rowsColsMatch = lower.match(
+    /(\d+)\s*rows?\s*(?:of|and|,)\s*(\d+)\s*col(?:umn)s?/i
+  )
+  if (rowsColsMatch) {
+    rows = Math.floor(Number(rowsColsMatch[1]))
+    cols = Math.floor(Number(rowsColsMatch[2]))
+  }
+
+  // "10 columns, 10 rows"
+  if (!rowsColsMatch) {
+    const colsRowsMatch = lower.match(
+      /(\d+)\s*col(?:umn)s?\s*(?:,|and|of)\s*(\d+)\s*rows?/i
+    )
+    if (colsRowsMatch) {
+      cols = Math.floor(Number(colsRowsMatch[1]))
+      rows = Math.floor(Number(colsRowsMatch[2]))
+    }
+  }
+
+  // "10x10" / "10 x 10" / "4x6"
+  if (rows == null || cols == null) {
+    const gridMatch = lower.match(/(\d+)\s*[x×]\s*(\d+)/)
+    if (gridMatch) {
+      const a = Math.floor(Number(gridMatch[1]))
+      const b = Math.floor(Number(gridMatch[2]))
+      rows = a
+      cols = b
+    }
+  }
+
+  // "100 sticky notes" / "30 stickies" / "50 notes" / "create a grid of 100 sticky notes"
+  const totalMatch = lower.match(
+    /(\d+)\s*(?:sticky|stickies|notes?)|(?:grid|create|make|add)\s+(?:a\s+)?(?:grid\s+of\s+)?(\d+)\s*(?:sticky|stickies|notes?)/i
+  )
+  if (totalMatch && total == null) {
+    total = Math.floor(Number(totalMatch[1] || totalMatch[2]))
+  }
+
+  // "30 sticky notes, 10 columns" or "10 columns, 30 sticky notes" -> total=30, cols=10
+  const colsOnlyMatch = lower.match(
+    /(\d+)\s*(?:sticky|stickies|notes?).*?(\d+)\s*col(?:umn)s?/i
+  )
+  if (colsOnlyMatch && cols == null) {
+    total = total ?? Math.floor(Number(colsOnlyMatch[1]))
+    cols = Math.floor(Number(colsOnlyMatch[2]))
+  }
+
+  // Derive missing values
+  if (rows != null && cols != null) {
+    total = rows * cols
+  } else if (total != null && cols != null) {
+    rows = Math.ceil(total / cols)
+  } else if (total != null && rows != null) {
+    cols = Math.ceil(total / rows)
+  } else if (total != null) {
+    cols = total >= 50 ? 10 : Math.ceil(Math.sqrt(total))
+    rows = Math.ceil(total / cols)
+    total = rows * cols
+  } else {
+    return null
+  }
+
+  if (rows < 1 || cols < 1 || total < 1) return null
+  return { rows, cols, total: Math.min(total, rows * cols) }
+}
+
+/** Trigger phrases for REARRANGE_STICKY_GRID intent (modify existing stickies, don't create) */
+const REARRANGE_TRIGGERS = [
+  /\brearrange\b/i,
+  /\breorganize\b/i,
+  /\borganize\b/i,
+  /\barrange\b/i,
+  /\blayout\b/i,
+  /\bmove\s+(?:all\s+)?(?:the\s+)?(?:sticky|stickies|notes?)\b/i,
+  /\bput\s+(?:all\s+)?(?:the\s+)?(?:sticky|stickies|notes?)\s+in\b/i,
+]
+
+function isRearrangeIntent(prompt: string): boolean {
+  return REARRANGE_TRIGGERS.some((re) => re.test(prompt))
+}
 
 const functions = getFunctions(firebaseApp)
 type ConversationMessage = { role: 'user' | 'assistant'; content: string }
@@ -63,6 +195,89 @@ export async function processAICommand(
 
   const lowerPrompt = userPrompt.toLowerCase().trim()
   const stripped = lowerPrompt.replace(/[!?.]+$/, '').trim()
+
+  if (isClearBoardIntent(userPrompt)) {
+    const ids = objectsList.map((o) => o.objectId)
+    for (const objectId of ids) {
+      await deleteObject(boardId, objectId)
+    }
+    const msg = `Deleted ${ids.length} object(s)`
+    actions.push(msg)
+    return { success: true, message: msg, actions }
+  }
+
+  const stickyGridParse = parseStickyGridIntent(userPrompt)
+
+  // Rearrange existing stickies into grid (takes precedence over create when both match)
+  if (stickyGridParse && isRearrangeIntent(userPrompt)) {
+    const stickies = objectsList.filter(
+      (o): o is BoardObject & { type: 'sticky'; position: { x: number; y: number } } =>
+        o.type === 'sticky' && 'position' in o && o.position != null
+    )
+    if (stickies.length > 0) {
+      let { rows, cols } = stickyGridParse
+      rows = Math.max(1, Math.min(50, rows))
+      cols = Math.max(1, Math.min(50, cols))
+      const count = Math.min(stickies.length, rows * cols)
+      const actualRows = Math.ceil(count / cols)
+
+      const vc = viewportCenter ?? { x: 1000, y: 1000 }
+      const gridWidth = (cols - 1) * DEFAULT_GAP_X + STICKY_WIDTH
+      const gridHeight = (actualRows - 1) * DEFAULT_GAP_Y + STICKY_HEIGHT
+      const startX = vc.x - gridWidth / 2
+      const startY = vc.y - gridHeight / 2
+
+      const sorted = [...stickies].sort((a, b) => {
+        const ay = a.position.y
+        const by = b.position.y
+        if (Math.abs(ay - by) > 20) return ay - by
+        return a.position.x - b.position.x
+      })
+
+      const updates = sorted.slice(0, count).map((s, i) => {
+        const row = Math.floor(i / cols)
+        const col = i % cols
+        const x = startX + col * DEFAULT_GAP_X
+        const y = startY + row * DEFAULT_GAP_Y
+        return { objectId: s.objectId, x, y }
+      })
+
+      await batchUpdatePositions(boardId, updates)
+      const msg = `Rearranged ${count} sticky notes into ${actualRows}×${cols} grid.`
+      actions.push(msg)
+      return { success: true, message: msg, actions }
+    }
+  }
+
+  if (stickyGridParse) {
+    let { rows, cols, total } = stickyGridParse
+    const capWarning = total > MAX_STICKY_GRID
+    if (total > MAX_STICKY_GRID) {
+      total = MAX_STICKY_GRID
+      cols = Math.min(cols, 30)
+      rows = Math.ceil(total / cols)
+    }
+    const vc = viewportCenter ?? { x: 1000, y: 1000 }
+    const gridWidth = (cols - 1) * DEFAULT_GAP_X + STICKY_WIDTH
+    const gridHeight = (rows - 1) * DEFAULT_GAP_Y + STICKY_HEIGHT
+    const startX = vc.x - gridWidth / 2
+    const startY = vc.y - gridHeight / 2
+    const objectsMap = new Map(objectsList.map((o) => [o.objectId, o]))
+    const ctx = {
+      boardId,
+      args: { rows, cols, startX, startY, gapX: DEFAULT_GAP_X, gapY: DEFAULT_GAP_Y, text: 'Note' },
+      objectsMap,
+      objectsList,
+      createdItems,
+      actions,
+    }
+    await executeCreateStickyGrid(ctx)
+    const msg = capWarning
+      ? `Created ${total} sticky notes (${rows}x${cols}). Capped at 300.`
+      : `Created ${total} sticky notes (${rows}x${cols}).`
+    return { success: true, message: msg, actions, createdItems }
+  }
+
   if (ACKNOWLEDGMENTS.some((ack) => stripped === ack)) {
     return { success: true, message: "You're welcome! Let me know if you need anything else.", actions }
   }

@@ -36,6 +36,8 @@ export interface BoardObjectBase {
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp
+  /** Z-order; higher = on top. If absent, sort by createdAt. */
+  displayOrder?: number
 }
 
 export type BoardObjectType =
@@ -68,6 +70,7 @@ export interface StickyObject extends BoardObjectBase {
   content: string
   fillColor: string
   textStyle: TextStyle
+  opacity?: number
   /** Rounded corner radius (default 12) for template styling */
   cornerRadius?: number
 }
@@ -75,6 +78,9 @@ export interface StickyObject extends BoardObjectBase {
 /** Base shape styling (black border, transparent fill by default) */
 export const DEFAULT_STROKE_COLOR = '#000000'
 export const DEFAULT_FILL_COLOR = 'transparent'
+
+/** Stroke style for shape borders */
+export type ShapeStrokeStyle = 'solid' | 'dashed' | 'dotted'
 
 /** Rectangle shape */
 export interface RectangleObject extends BoardObjectBase {
@@ -84,6 +90,9 @@ export interface RectangleObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeOpacity?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   /** Rounded corner radius (default 12) for template styling */
   cornerRadius?: number
 }
@@ -96,6 +105,9 @@ export interface CircleObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeOpacity?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Triangle: position + dimensions; inverted = point down */
@@ -106,6 +118,8 @@ export interface TriangleObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   /** Point-up (default) or point-down */
   inverted?: boolean
 }
@@ -118,6 +132,8 @@ export interface PolygonObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Star shape: position + dimensions */
@@ -128,6 +144,8 @@ export interface StarObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Arrow shape: position + dimensions; direction = 'right' | 'left' */
@@ -138,6 +156,8 @@ export interface ArrowObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   direction?: 'right' | 'left'
 }
 
@@ -149,6 +169,8 @@ export interface PlusObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Parallelogram: shapeKind = 'right' | 'left' */
@@ -159,6 +181,8 @@ export interface ParallelogramObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   shapeKind: 'right' | 'left'
 }
 
@@ -170,6 +194,8 @@ export interface CylinderObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   shapeKind: 'vertical' | 'horizontal'
 }
 
@@ -181,6 +207,8 @@ export interface TabShapeObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Trapezoid shape */
@@ -191,6 +219,8 @@ export interface TrapezoidObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Circle with cross (flowchart decision) */
@@ -201,6 +231,8 @@ export interface CircleCrossObject extends BoardObjectBase {
   fillColor: string
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
 }
 
 /** Connection arrow variant */
@@ -213,6 +245,8 @@ export interface LineObject extends BoardObjectBase {
   end: Point
   strokeColor?: string
   strokeWidth?: number
+  strokeStyle?: ShapeStrokeStyle
+  opacity?: number
   /** Arrow style for connection tools; default 'line' = plain line */
   connectionType?: ConnectionType
 }

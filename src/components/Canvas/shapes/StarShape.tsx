@@ -61,6 +61,10 @@ export function StarShape({
     }
   }
 
+  const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
+  const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
+
   const handlers = shapeHandlers(
     obj.objectId,
     viewport,
@@ -77,6 +81,7 @@ export function StarShape({
         ref={groupRef}
         x={obj.position?.x ?? 0}
         y={obj.position?.y ?? 0}
+        opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -89,6 +94,7 @@ export function StarShape({
           fill={obj.fillColor ?? 'transparent'}
           stroke={selected ? '#8093F1' : (obj.strokeColor ?? '#000000')}
           strokeWidth={selected ? 3 : (obj.strokeWidth ?? 2)}
+          dash={dash}
           perfectDrawEnabled={false}
         />
       </Group>

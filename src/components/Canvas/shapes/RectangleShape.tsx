@@ -31,6 +31,9 @@ export function RectangleShape({
   const shapeRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
   const { objectId, position, dimensions } = obj
+  const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
+  const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
 
   useShapeTransform(selected, !!onObjectResizeEnd, trRef, shapeRef)
 
@@ -60,6 +63,7 @@ export function RectangleShape({
         ref={shapeRef}
         x={position.x}
         y={position.y}
+        opacity={opacity}
         {...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool)}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -69,6 +73,7 @@ export function RectangleShape({
           fill={obj.fillColor ?? 'transparent'}
           stroke={selected ? '#8093F1' : (obj.strokeColor ?? '#000000')}
           strokeWidth={selected ? 3 : (obj.strokeWidth ?? 2)}
+          dash={dash}
           cornerRadius={obj.cornerRadius ?? 12}
           perfectDrawEnabled={false}
         />

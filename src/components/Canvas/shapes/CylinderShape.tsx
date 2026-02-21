@@ -36,6 +36,9 @@ export function CylinderShape({
   const isVert = obj.shapeKind === 'vertical'
   const stroke = selected ? '#8093F1' : (obj.strokeColor ?? '#000000')
   const sw = selected ? 3 : (obj.strokeWidth ?? 2)
+  const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
+  const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
   const rx = isVert ? w / 2 : h / 2
   const ry = isVert ? 0.15 * h : w / 8
 
@@ -99,6 +102,7 @@ export function CylinderShape({
         ref={groupRef}
         x={obj.position?.x ?? 0}
         y={obj.position?.y ?? 0}
+        opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -118,6 +122,7 @@ export function CylinderShape({
               radiusY={ry}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               fill={obj.fillColor ?? 'transparent'}
               listening={false}
               perfectDrawEnabled={false}
@@ -126,6 +131,7 @@ export function CylinderShape({
               points={[0, ry, 0, h - ry]}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               listening={false}
               perfectDrawEnabled={false}
             />
@@ -133,6 +139,7 @@ export function CylinderShape({
               points={[w, ry, w, h - ry]}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               listening={false}
               perfectDrawEnabled={false}
             />
@@ -143,6 +150,7 @@ export function CylinderShape({
               radiusY={ry}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               fill={obj.fillColor ?? 'transparent'}
               listening={false}
               perfectDrawEnabled={false}
@@ -157,6 +165,7 @@ export function CylinderShape({
               radiusY={ry}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               fill={obj.fillColor ?? 'transparent'}
               listening={false}
               perfectDrawEnabled={false}
@@ -165,6 +174,7 @@ export function CylinderShape({
               points={[0, ry, 0, w - ry]}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               listening={false}
               perfectDrawEnabled={false}
             />
@@ -172,6 +182,7 @@ export function CylinderShape({
               points={[h, ry, h, w - ry]}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               listening={false}
               perfectDrawEnabled={false}
             />
@@ -182,6 +193,7 @@ export function CylinderShape({
               radiusY={ry}
               stroke={stroke}
               strokeWidth={sw}
+              dash={dash}
               fill={obj.fillColor ?? 'transparent'}
               listening={false}
               perfectDrawEnabled={false}

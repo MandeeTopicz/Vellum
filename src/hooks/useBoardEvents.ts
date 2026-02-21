@@ -2,7 +2,8 @@
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
 import { useEffect, useCallback, useMemo, useRef } from 'react'
-import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates } from '../services/objects'
+import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates, type CreateObjectInput } from '../services/objects'
+import { objToCreateInput, getObjectsBboxMin } from '../services/aiTools/shared'
 import {
   createComment,
   addCommentReply,
@@ -10,12 +11,15 @@ import {
 } from '../services/comments'
 import { updateBoard } from '../services/board'
 import { processAICommand } from '../services/aiAgent'
+import { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline } from '../services/aiTools'
+import { buildComposedTemplate, TEMPLATE_FORMAT_MAP, centerCreateInputsAt } from '../utils/templates'
 import { canvasToStage } from '../components/Canvas/InfiniteCanvas'
 import type { ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
-import type { LineObject, PenObject, TextObject, ObjectsMap } from '../types'
+import type { LineObject, PenObject, TextObject, ObjectsMap, BoardObject } from '../types'
 import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
 import { debounce } from '../utils/debounce'
+import { objectsInSelectionRect } from '../utils/objectBounds'
 import type { useBoardData } from './useBoardData'
 import type { useBoardTools } from './useBoardTools'
 
@@ -55,9 +59,14 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    copiedObjects,
+    setCopiedObjects,
+    setTemplatesModalOpen,
   } = tools
 
   const containerRef = data.containerRef
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
 
   const dragUpdateQueueRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const flushDragUpdates = useMemo(
@@ -79,6 +88,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         setSelectedIds(new Set())
         setCommentModalPos(null)
         setCommentThread(null)
+        setTemplatesModalOpen(false)
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedIds.size > 0 && canEdit) {
@@ -99,7 +109,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, setActiveTool, setSelectedIds, setCommentModalPos, setCommentThread])
+  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, setActiveTool, setSelectedIds, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
 
   const getViewportCenter = useCallback(() => {
     const w = dimensions.width
@@ -144,34 +154,92 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   const handleObjectDragEnd = useCallback(
     async (objectId: string, x: number, y: number) => {
       if (!id || !canEdit) return
-      const obj = objects[objectId]
+      const currentObjects = objects
+      const currentSelected = selectedIdsRef.current
+      const obj = currentObjects[objectId]
       if (!obj) return
-      if (obj.type === 'line') {
-        const line = obj as LineObject
+
+      const idsToMove =
+        currentSelected.size > 1 && currentSelected.has(objectId)
+          ? Array.from(currentSelected)
+          : [objectId]
+      const draggedObj = currentObjects[objectId]
+      if (!draggedObj) return
+
+      let dx: number
+      let dy: number
+      if (draggedObj.type === 'line') {
+        const line = draggedObj as LineObject
         const minX = Math.min(line.start.x, line.end.x)
         const minY = Math.min(line.start.y, line.end.y)
-        const dx = x - minX
-        const dy = y - minY
-        const to = {
-          start: { x: line.start.x + dx, y: line.start.y + dy },
-          end: { x: line.end.x + dx, y: line.end.y + dy },
-        }
-        pushUndo({ type: 'update', objectId, from: { start: line.start, end: line.end }, to })
-        await updateObject(id, objectId, to)
-      } else if ('position' in obj) {
-        const from = { position: (obj as { position: { x: number; y: number } }).position }
-        const to = { position: { x, y } }
-        pushUndo({ type: 'update', objectId, from, to })
-        setObjects((prev: ObjectsMap) => {
-          const o = prev[objectId]
-          if (!o || !('position' in o)) return prev
-          return { ...prev, [objectId]: { ...o, position: { x, y } } }
-        })
-        dragUpdateQueueRef.current.set(objectId, { x, y })
-        flushDragUpdates()
+        dx = x - minX
+        dy = y - minY
+      } else if ('position' in draggedObj) {
+        const pos = (draggedObj as { position: { x: number; y: number } }).position
+        dx = x - pos.x
+        dy = y - pos.y
+      } else {
+        return
       }
+
+      const positionUpdates: Record<string, { x: number; y: number }> = {}
+      type LineUpdate = { oid: string; to: { start: { x: number; y: number }; end: { x: number; y: number } }; from: { start: { x: number; y: number }; end: { x: number; y: number } } }
+      const lineUpdates: LineUpdate[] = []
+
+      for (const oid of idsToMove) {
+        const o = currentObjects[oid]
+        if (!o) continue
+        if (o.type === 'line') {
+          const line = o as LineObject
+          const to = {
+            start: { x: line.start.x + dx, y: line.start.y + dy },
+            end: { x: line.end.x + dx, y: line.end.y + dy },
+          }
+          lineUpdates.push({ oid, to, from: { start: line.start, end: line.end } })
+        } else if ('position' in o) {
+          const pos = (o as { position: { x: number; y: number } }).position
+          const newX = oid === objectId ? x : pos.x + dx
+          const newY = oid === objectId ? y : pos.y + dy
+          positionUpdates[oid] = { x: newX, y: newY }
+          pushUndo({
+            type: 'update',
+            objectId: oid,
+            from: { position: pos },
+            to: { position: { x: newX, y: newY } },
+          })
+          dragUpdateQueueRef.current.set(oid, { x: newX, y: newY })
+        }
+      }
+
+      for (const { oid, to, from } of lineUpdates) {
+        pushUndo({ type: 'update', objectId: oid, from, to })
+        await updateObject(id, oid, to)
+      }
+
+      if (Object.keys(positionUpdates).length > 0) {
+        setObjects((prev: ObjectsMap) => {
+          let next = prev
+          for (const [oid, pos] of Object.entries(positionUpdates)) {
+            const o = next[oid]
+            if (o && 'position' in o) {
+              next = { ...next, [oid]: { ...o, position: pos } }
+            }
+          }
+          return next
+        })
+      }
+      flushDragUpdates()
     },
     [id, canEdit, objects, pushUndo, setObjects]
+  )
+
+  const handleSelectionBoxEnd = useCallback(
+    (rect: { left: number; top: number; right: number; bottom: number }) => {
+      const ids = objectsInSelectionRect(objects, rect)
+      setSelectedIds(new Set(ids))
+      setActiveTool('pointer')
+    },
+    [objects, setSelectedIds, setActiveTool]
   )
 
   const handleObjectClick = useCallback(
@@ -232,6 +300,8 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         for (const { objectId, createInput } of result.createdItems) {
           pushUndo({ type: 'create', objectId, createInput })
         }
+        setSelectedIds(new Set(result.createdItems.map((c) => c.objectId)))
+        setActiveTool('pointer')
         const positions = result.createdItems
           .map((c) => ('position' in c.createInput ? c.createInput.position : null))
           .filter((p): p is { x: number; y: number } => p != null)
@@ -247,7 +317,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
       return { success: true, message: result.message }
     },
-    [id, canEdit, objects, pushUndo, dimensions, data]
+    [id, canEdit, objects, pushUndo, dimensions, data, setSelectedIds, setActiveTool]
   )
 
   const handleBackgroundClick = useCallback(
@@ -608,6 +678,305 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     [id, data, user?.uid]
   )
 
+  const handleObjectStyleUpdate = useCallback(
+    async (objectId: string, updates: ObjectUpdates) => {
+      if (!id || !canEdit) return
+      await updateObject(id, objectId, updates)
+    },
+    [id, canEdit]
+  )
+
+  const handleCopy = useCallback(() => {
+    if (!canEdit || selectedIds.size === 0) return
+    const objs = Array.from(selectedIds)
+      .map((oid) => objects[oid])
+      .filter((o): o is BoardObject => o != null)
+    setCopiedObjects(objs)
+  }, [canEdit, selectedIds, objects, setCopiedObjects])
+
+  const handlePaste = useCallback(
+    async (targetCanvasPos?: { x: number; y: number }) => {
+      if (!id || !canEdit || copiedObjects.length === 0) return
+      let offsetX: number
+      let offsetY: number
+      if (targetCanvasPos) {
+        const anchor = getObjectsBboxMin(copiedObjects)
+        if (anchor) {
+          offsetX = targetCanvasPos.x - anchor.x
+          offsetY = targetCanvasPos.y - anchor.y
+        } else {
+          offsetX = targetCanvasPos.x
+          offsetY = targetCanvasPos.y
+        }
+      } else {
+        offsetX = 40
+        offsetY = 40
+      }
+      const newIds: string[] = []
+      try {
+        for (const obj of copiedObjects) {
+          const input = objToCreateInput(obj, offsetX, offsetY)
+        if (input) {
+          const newId = await createObject(id, input)
+          newIds.push(newId)
+        }
+      }
+      if (newIds.length > 0) {
+        setSelectedIds(new Set(newIds))
+      } else if (copiedObjects.length > 0) {
+        console.warn('Paste: no objects could be created (unsupported types?)', copiedObjects.map((o) => o.type))
+      }
+    } catch (err) {
+      console.error('Paste failed:', err)
+      alert(`Paste failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    },
+    [id, canEdit, copiedObjects, setSelectedIds]
+  )
+
+  const handleDuplicate = useCallback(async () => {
+    if (!id || !canEdit || selectedIds.size === 0) return
+    const offsetX = 50
+    const offsetY = 50
+    const newIds: string[] = []
+    try {
+      for (const oid of selectedIds) {
+        const obj = objects[oid]
+        if (!obj) continue
+        const input = objToCreateInput(obj, offsetX, offsetY)
+        if (input) {
+          const newId = await createObject(id, input)
+          newIds.push(newId)
+        }
+      }
+      if (newIds.length > 0) {
+        setSelectedIds(new Set(newIds))
+      } else {
+        console.warn('Duplicate: no objects created', Array.from(selectedIds).map((oid) => ({ id: oid, type: objects[oid]?.type })))
+      }
+    } catch (err) {
+      console.error('Duplicate failed:', err)
+      alert(`Duplicate failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, [id, canEdit, selectedIds, objects, setSelectedIds])
+
+  const handleDelete = useCallback(() => {
+    if (!id || !canEdit || selectedIds.size === 0) return
+    selectedIds.forEach((oid: string) => {
+      const obj = objects[oid]
+      if (obj) pushUndo({ type: 'delete', objectId: oid, deleted: obj })
+      deleteObject(id, oid)
+    })
+    setSelectedIds(new Set())
+  }, [id, canEdit, selectedIds, objects, pushUndo, setSelectedIds])
+
+  const handleSendToFront = useCallback(async () => {
+    if (!id || !canEdit || selectedIds.size === 0) return
+    const allOrders = Object.values(objects).map((o) => o.displayOrder ?? o.createdAt?.toMillis?.() ?? 0)
+    const maxOrder = allOrders.length > 0 ? Math.max(...allOrders) : 0
+    const newOrder = maxOrder + 1
+    for (const oid of selectedIds) {
+      await updateObject(id, oid, { displayOrder: newOrder })
+    }
+  }, [id, canEdit, selectedIds, objects])
+
+  const handleBringToBack = useCallback(async () => {
+    if (!id || !canEdit || selectedIds.size === 0) return
+    const allOrders = Object.values(objects).map((o) => o.displayOrder ?? o.createdAt?.toMillis?.() ?? 0)
+    const minOrder = allOrders.length > 0 ? Math.min(...allOrders) : 0
+    const newOrder = minOrder - 1
+    for (const oid of selectedIds) {
+      await updateObject(id, oid, { displayOrder: newOrder })
+    }
+  }, [id, canEdit, selectedIds, objects])
+
+  /** Places elements at viewport center; optionally selects them. */
+  const insertElementsAtCenter = useCallback(
+    async (elements: CreateObjectInput[], opts?: { selectAndGroup?: boolean }): Promise<string[]> => {
+      if (!id || !canEdit || elements.length === 0) return []
+      const center = getViewportCenter()
+      const centered = centerCreateInputsAt(elements, center.x, center.y)
+      const newIds: string[] = []
+      for (const input of centered) {
+        const objectId = await createObject(id, input)
+        pushUndo({ type: 'create', objectId, createInput: input })
+        newIds.push(objectId)
+      }
+      if (opts?.selectAndGroup && newIds.length > 0) {
+        setSelectedIds(new Set(newIds))
+        setActiveTool('pointer')
+      }
+      return newIds
+    },
+    [id, canEdit, getViewportCenter, pushUndo, setSelectedIds, setActiveTool]
+  )
+
+  /** Inserts a structural format template (Doc/Kanban/Table/Timeline/Flow Chart/Slides) at viewport center. */
+  const insertFormatsStructure = useCallback(
+    async (kind: string): Promise<string[]> => {
+      if (!id || !canEdit) return []
+      const center = getViewportCenter()
+      const createdItems: { objectId: string; createInput: CreateObjectInput }[] = []
+      const actions: string[] = []
+      const objectsMap = new Map(Object.entries(objects))
+      const objectsList = Object.values(objects)
+      const ctx = {
+        boardId: id,
+        args: { startX: center.x, startY: center.y } as Record<string, unknown>,
+        objectsMap,
+        objectsList,
+        createdItems,
+        actions,
+      }
+
+      try {
+        if (kind === 'Kanban') {
+          ctx.args = {
+            startX: center.x - 550,
+            startY: center.y - 200,
+            mainTitle: 'Kanban Board',
+            columns: [
+              { title: 'To Do', items: ['Task 1', 'Task 2', 'Task 3'] },
+              { title: 'In Progress', items: [] },
+              { title: 'Done', items: [] },
+            ],
+          }
+          await executeCreateKanbanBoard(ctx)
+        } else if (kind === 'Flow Chart') {
+          ctx.args = {
+            startX: center.x - 100,
+            startY: center.y - 100,
+            steps: [
+              { label: 'Start', type: 'start' },
+              { label: 'Process', type: 'process' },
+              { label: 'Decision', type: 'decision' },
+              { label: 'End', type: 'end' },
+            ],
+            orientation: 'vertical',
+          }
+          await executeCreateFlowchart(ctx)
+        } else if (kind === 'Mind Map') {
+          ctx.args = {
+            centerX: center.x,
+            centerY: center.y,
+            centerTopic: 'Main Topic',
+            branches: ['Branch 1', 'Branch 2', 'Branch 3'],
+          }
+          await executeCreateMindMap(ctx)
+        } else if (kind === 'Timeline') {
+          ctx.args = {
+            startX: center.x - 280,
+            startY: center.y - 50,
+            events: [
+              { date: 'Mon', label: 'Event 1' },
+              { date: 'Tue', label: 'Event 2' },
+              { date: 'Wed', label: 'Event 3' },
+            ],
+          }
+          await executeCreateTimeline(ctx)
+        } else {
+          ctx.args = {
+            startX: center.x - 100,
+            startY: center.y - 80,
+          }
+          const docInput: CreateObjectInput = {
+            type: 'text',
+            position: { x: center.x - 100, y: center.y - 80 },
+            dimensions: { width: 400, height: 120 },
+            content: kind === 'Doc' ? 'Document\n\nAdd your content here.' : kind === 'Slides' ? 'Slide 1' : '',
+          }
+          const objectId = await createObject(id, docInput)
+          createdItems.push({ objectId, createInput: docInput })
+          if (kind === 'Slides') {
+            const slide2: CreateObjectInput = {
+              type: 'rectangle',
+              position: { x: center.x - 100, y: center.y + 60 },
+              dimensions: { width: 400, height: 240 },
+              fillColor: '#f3f4f6',
+              strokeColor: '#e5e7eb',
+              cornerRadius: 8,
+            }
+            const slide2Id = await createObject(id, slide2)
+            createdItems.push({ objectId: slide2Id, createInput: slide2 })
+          } else if (kind === 'Table') {
+            const cellW = 100
+            const cellH = 60
+            const cols = 3
+            const rows = 3
+            for (let r = 0; r < rows; r++) {
+              for (let c = 0; c < cols; c++) {
+                const cell: CreateObjectInput = {
+                  type: 'rectangle',
+                  position: { x: center.x - (cols * cellW) / 2 + c * cellW, y: center.y - (rows * cellH) / 2 + r * cellH },
+                  dimensions: { width: cellW - 4, height: cellH - 4 },
+                  fillColor: r === 0 ? '#e5e7eb' : '#ffffff',
+                  strokeColor: '#d1d5db',
+                  strokeWidth: 1,
+                }
+                const cellId = await createObject(id, cell)
+                createdItems.push({ objectId: cellId, createInput: cell })
+              }
+            }
+          }
+        }
+
+        for (const { objectId, createInput } of createdItems) {
+          pushUndo({ type: 'create', objectId, createInput })
+        }
+        const ids = createdItems.map((item) => item.objectId)
+        if (ids.length > 0) {
+          setSelectedIds(new Set(ids))
+          setActiveTool('pointer')
+        }
+        return ids
+      } catch (err) {
+        console.error('[insertFormatsStructure]', kind, err)
+        return []
+      }
+    },
+    [id, canEdit, objects, getViewportCenter, pushUndo, setSelectedIds, setActiveTool]
+  )
+
+  /** Inserts template by key: composed first, else format-structure fallback. */
+  const insertTemplateByKey = useCallback(
+    async (key: string): Promise<void> => {
+      if (!id || !canEdit) return
+
+      const composed = buildComposedTemplate(key)
+      if (composed.length > 0) {
+        await insertElementsAtCenter(composed, { selectAndGroup: true })
+        return
+      }
+
+      const format = TEMPLATE_FORMAT_MAP[key]
+      if (format) {
+        await insertFormatsStructure(format)
+      } else {
+        await insertFormatsStructure('Doc')
+      }
+    },
+    [id, canEdit, insertElementsAtCenter, insertFormatsStructure]
+  )
+
+  useEffect(() => {
+    const handleCopyPasteDuplicate = (e: KeyboardEvent) => {
+      if (!canEdit || editingStickyId || editingText) return
+      const meta = e.metaKey || e.ctrlKey
+      if (meta && e.key === 'c') {
+        e.preventDefault()
+        handleCopy()
+      } else if (meta && e.key === 'v') {
+        e.preventDefault()
+        if (copiedObjects.length > 0) handlePaste()
+      } else if (meta && e.key === 'd') {
+        e.preventDefault()
+        if (selectedIds.size > 0) handleDuplicate()
+      }
+    }
+    window.addEventListener('keydown', handleCopyPasteDuplicate)
+    return () => window.removeEventListener('keydown', handleCopyPasteDuplicate)
+  }, [canEdit, editingStickyId, editingText, selectedIds, copiedObjects, handleCopy, handlePaste, handleDuplicate])
+
   return {
     handleStageMouseMove,
     handleObjectDragEnd,
@@ -635,5 +1004,14 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     handleArrowDragEnd,
     handleEraserMove,
     handleBoardNameChange,
+    handleObjectStyleUpdate,
+    handleSelectionBoxEnd,
+    handleCopy,
+    handlePaste,
+    handleDuplicate,
+    handleDelete,
+    handleSendToFront,
+    handleBringToBack,
+    insertTemplateByKey,
   }
 }

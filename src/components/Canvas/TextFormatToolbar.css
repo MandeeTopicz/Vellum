@@ -156,6 +156,7 @@
   background: white;
   cursor: pointer;
   font-size: 14px;
+  color: #000000;
   transition: background 0.15s;
 }
 
@@ -165,7 +166,7 @@
 
 .font-option.active {
   background: #eff6ff;
-  color: #8093F1;
+  color: #000000;
 }
 
 .font-size-input {

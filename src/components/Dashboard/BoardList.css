@@ -307,7 +307,7 @@
 /* Grid view */
 .board-list-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1rem;
 }
 
@@ -317,7 +317,7 @@
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
@@ -330,8 +330,20 @@
 }
 
 .board-list-grid-thumb {
-  height: 100px;
+  height: 158px;
+  min-height: 158px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 10px 10px 0 0;
+}
+
+.board-list-grid-thumb:focus {
+  outline: 2px solid #8093F1;
+  outline-offset: -2px;
 }
 
 .board-list-grid-body {
@@ -362,6 +374,15 @@
   gap: 0.25rem;
   padding: 0.5rem 0.75rem;
   border-top: 1px solid #f3f4f6;
+  position: relative;
+}
+
+.board-list-grid .board-list-menu-wrapper {
+  position: relative;
+}
+
+.board-list-grid .board-list-grid-actions {
+  border-radius: 0 0 10px 10px;
 }
 
 .board-list-empty {

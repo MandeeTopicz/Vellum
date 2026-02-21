@@ -36,6 +36,9 @@ export function PlusShape({
   const cy = h / 2
   const stroke = selected ? '#8093F1' : (obj.strokeColor ?? '#000000')
   const sw = selected ? 3 : (obj.strokeWidth ?? 2)
+  const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
+  const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
 
   const hasResizeHandler = !!onObjectResizeEnd
   useShapeTransform(selected, hasResizeHandler, trRef, groupRef)
@@ -78,6 +81,7 @@ export function PlusShape({
         ref={groupRef}
         x={obj.position?.x ?? 0}
         y={obj.position?.y ?? 0}
+        opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -85,6 +89,7 @@ export function PlusShape({
           points={[0, cy, w, cy]}
           stroke={stroke}
           strokeWidth={sw}
+          dash={dash}
           listening={false}
           perfectDrawEnabled={false}
         />
@@ -92,6 +97,7 @@ export function PlusShape({
           points={[cx, 0, cx, h]}
           stroke={stroke}
           strokeWidth={sw}
+          dash={dash}
           listening={false}
           perfectDrawEnabled={false}
         />

@@ -16,6 +16,9 @@ import { executeCreateOrgChart } from './createOrgChart'
 import { executeCreateMindMap } from './createMindMap'
 import { executeCreateKanbanBoard } from './createKanbanBoard'
 import { executeCreateTimeline } from './createTimeline'
+import { executeCreateStickyGrid } from './createStickyGrid'
+
+export { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline, executeCreateStickyGrid }
 import { executeDuplicateObjects } from './duplicateObjects'
 import type { ToolHandler } from './types'
 
@@ -38,6 +41,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   createMindMap: executeCreateMindMap,
   createKanbanBoard: executeCreateKanbanBoard,
   createTimeline: executeCreateTimeline,
+  createStickyGrid: executeCreateStickyGrid,
   duplicateObjects: executeDuplicateObjects,
   getBoardState: executeGetBoardState,
   suggestLayout: executeSuggestLayout,

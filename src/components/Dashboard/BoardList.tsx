@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { Board } from '../../types'
 import { removeBoardMember } from '../../services/board'
+import { fetchBoardScene } from '../../services/scene'
+import type { BoardScene } from '../../services/scene'
+import BoardCanvasThumbnail from './BoardCanvasThumbnail'
+import QuickViewModal from './QuickViewModal'
 import './BoardList.css'
 
 type FilterOption = 'all' | 'created' | 'shared'
@@ -54,9 +58,11 @@ export default function BoardList({
 }: BoardListProps) {
   const [filter, setFilter] = useState<FilterOption>('all')
   const [sort, setSort] = useState<SortOption>('lastOpened')
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [quickViewBoard, setQuickViewBoard] = useState<{ id: string; name: string; scene: BoardScene | null } | null>(null)
+  const sceneCacheRef = useRef<Map<string, BoardScene | null>>(new Map())
 
   const allBoards = useMemo(() => {
     const owned = ownedBoards.map((b) => ({ ...b, isOwner: true }))
@@ -91,6 +97,43 @@ export default function BoardList({
       return bMs - aMs
     })
   }, [filteredBoards, sort])
+
+  const getOrFetchScene = useCallback(async (boardId: string): Promise<BoardScene | null> => {
+    const cached = sceneCacheRef.current.get(boardId)
+    if (cached !== undefined) return cached
+    try {
+      const scene = await fetchBoardScene(boardId)
+      sceneCacheRef.current.set(boardId, scene)
+      return scene
+    } catch {
+      sceneCacheRef.current.set(boardId, null)
+      return null
+    }
+  }, [])
+
+  const [sceneByBoard, setSceneByBoard] = useState<Record<string, BoardScene | null>>({})
+
+  const boardIds = useMemo(() => sortedBoards.map((b) => b.id), [sortedBoards])
+
+  const fetchSceneForBoard = useCallback((boardId: string) => {
+    if (sceneCacheRef.current.has(boardId)) return
+    getOrFetchScene(boardId).then((scene) => {
+      setSceneByBoard((prev) => ({ ...prev, [boardId]: scene }))
+    })
+  }, [getOrFetchScene])
+
+  useEffect(() => {
+    boardIds.forEach(fetchSceneForBoard)
+  }, [boardIds, fetchSceneForBoard])
+
+  const handleQuickView = useCallback(
+    async (board: { id: string; name: string }, e: React.MouseEvent) => {
+      e.stopPropagation()
+      const scene = await getOrFetchScene(board.id)
+      setQuickViewBoard({ id: board.id, name: board.name || 'Untitled Board', scene })
+    },
+    [getOrFetchScene]
+  )
 
   const toggleFavorite = (boardId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -312,9 +355,7 @@ export default function BoardList({
         </div>
       ) : (
         <div className="board-list-grid">
-          {sortedBoards.map((board, index) => {
-            const isNearBottom = index >= sortedBoards.length - 3
-            return (
+          {sortedBoards.map((board) => (
               <div
                 key={board.id}
                 className="board-list-grid-card"
@@ -322,8 +363,18 @@ export default function BoardList({
               >
                 <div
                   className="board-list-grid-thumb"
-                  style={{ backgroundColor: hashToColor(board.id) }}
-                />
+                  onClick={(e) => handleQuickView(board, e)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && handleQuickView(board, e as unknown as React.MouseEvent)}
+                  aria-label={`Quick view ${board.name || 'Untitled Board'}`}
+                >
+                  <BoardCanvasThumbnail
+                    scene={sceneByBoard[board.id] ?? null}
+                    width={280}
+                    height={158}
+                  />
+                </div>
                 <div className="board-list-grid-body">
                   <span className="board-list-grid-name">{board.name || 'Untitled Board'}</span>
                   <span className="board-list-grid-meta">
@@ -334,7 +385,10 @@ export default function BoardList({
                   <button
                     type="button"
                     className="board-list-action-btn"
-                    onClick={(e) => toggleFavorite(board.id, e)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleFavorite(board.id, e)
+                    }}
                     title={favorites.has(board.id) ? 'Remove from favorites' : 'Add to favorites'}
                   >
                     {favorites.has(board.id) ? (
@@ -366,7 +420,7 @@ export default function BoardList({
                             setOpenMenuId(null)
                           }}
                         />
-                        <div className={`board-list-menu ${isNearBottom ? 'board-list-menu-up' : ''}`}>
+                        <div className="board-list-menu board-list-menu-up">
                           {board.isOwner && (
                             <button
                               type="button"
@@ -409,10 +463,17 @@ export default function BoardList({
                   </div>
                 </div>
               </div>
-            )
-          })}
+          ))}
         </div>
       )}
+
+      <QuickViewModal
+        open={!!quickViewBoard}
+        boardName={quickViewBoard?.name ?? ''}
+        scene={quickViewBoard?.scene ?? null}
+        onClose={() => setQuickViewBoard(null)}
+        onOpenBoard={quickViewBoard ? () => onOpen(quickViewBoard.id) : undefined}
+      />
 
       {allBoards.length === 0 && (
         <div className="board-list-empty">

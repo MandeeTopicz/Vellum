@@ -1,0 +1,39 @@
+.template-preview-thumbnail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f9fafb;
+  overflow: hidden;
+  border-radius: 8px 8px 0 0;
+}
+
+.template-preview-thumbnail .template-preview-svg {
+  overflow: visible;
+}
+
+.template-preview-text {
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 6px;
+  fill: #1a1a1a;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.template-preview-text-small {
+  font-size: 5px;
+}
+
+.template-preview-empty {
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px 8px 0 0;
+}
+
+.template-preview-empty span {
+  width: 32px;
+  height: 32px;
+  background: #e5e7eb;
+  border-radius: 4px;
+}

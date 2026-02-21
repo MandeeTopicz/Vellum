@@ -122,12 +122,12 @@ button:focus-visible,
   width: 100%;
   background: linear-gradient(
     135deg,
-    rgba(179, 136, 235, 0.30) 0%,      /* Purple #B388EB */
-    rgba(174, 184, 254, 0.28) 20%,     /* Purple-blue #AEB8FE */
-    rgba(103, 170, 249, 0.26) 40%,     /* Blue #67AAF9 */
-    rgba(46, 192, 249, 0.22) 60%,      /* Cyan #2EC0F9 */
-    rgba(134, 239, 172, 0.15) 80%,     /* Green */
-    rgba(179, 136, 235, 0.30) 100%     /* Back to purple */
+    rgba(179, 136, 235, 0.15) 0%,      /* Purple #B388EB - 50% opacity */
+    rgba(174, 184, 254, 0.14) 20%,     /* Purple-blue #AEB8FE */
+    rgba(103, 170, 249, 0.13) 40%,     /* Blue #67AAF9 */
+    rgba(46, 192, 249, 0.11) 60%,      /* Cyan #2EC0F9 */
+    rgba(134, 239, 172, 0.075) 80%,    /* Green */
+    rgba(179, 136, 235, 0.15) 100%     /* Back to purple */
   );
   background-size: 400% 400%;
   animation: gradientShift 20s ease infinite;

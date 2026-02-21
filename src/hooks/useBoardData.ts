@@ -15,7 +15,7 @@ import {
 } from '../services/objects'
 import { deleteComment, restoreComment, subscribeToComments } from '../services/comments'
 import { loadUndoStacks, saveUndoStacks, MAX_STACK_SIZE } from '../services/undoHistory'
-import { setUserPresence, subscribeToPresence, subscribeToRtdbConnection, updateCursor } from '../services/presence'
+import { setUserPresence, subscribeToPresence, updateCursor } from '../services/presence'
 import { getPendingInviteForBoard } from '../services/invites'
 import type { Board as BoardType } from '../types'
 import type { BoardComment } from '../services/comments'

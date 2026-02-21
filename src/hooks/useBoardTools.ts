@@ -3,6 +3,7 @@
  */
 import { useState, useCallback, useRef, useMemo } from 'react'
 import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
+import type { BoardObject } from '../types'
 import type { PenStyles } from '../components/Canvas/PenStylingToolbar'
 import type { EditingTextState } from '../components/Canvas/TextOverlayTextarea'
 import type { BoardComment } from '../services/comments'
@@ -54,6 +55,11 @@ export function useBoardTools(canEdit: boolean) {
     strokeType: 'solid',
   })
   const [eraserSize, setEraserSize] = useState(10)
+  const [copiedObjects, setCopiedObjects] = useState<BoardObject[]>([])
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const [templatesModalOpen, setTemplatesModalOpen] = useState(false)
+  const [templatesSearch, setTemplatesSearch] = useState('')
+  const [templatesCategory, setTemplatesCategory] = useState('Meetings & Workshops')
 
   const currentPenPointsRef = useRef<[number, number][]>([])
   const justClosedStickyEditorRef = useRef(false)
@@ -161,5 +167,15 @@ export function useBoardTools(canEdit: boolean) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    copiedObjects,
+    setCopiedObjects,
+    contextMenuPos,
+    setContextMenuPos,
+    templatesModalOpen,
+    setTemplatesModalOpen,
+    templatesSearch,
+    setTemplatesSearch,
+    templatesCategory,
+    setTemplatesCategory,
   }
 }

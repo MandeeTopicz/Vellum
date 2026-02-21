@@ -24,7 +24,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [shareBoardId, setShareBoardId] = useState<string | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
 
   useEffect(() => {
     if (!user?.uid) {
@@ -87,7 +87,7 @@ export default function Dashboard() {
   const displayName = user?.displayName || user?.email || 'User'
 
   return (
-    <div className="dashboard">
+    <div className="dashboard gradient-background">
       <header className="dashboard-topnav">
         <span className="dashboard-brand-wrap">
           <img src="/letter-v.png" alt="" className="vellum-logo-icon" aria-hidden />
@@ -117,7 +117,7 @@ export default function Dashboard() {
 
       <main
         className="dashboard-main"
-        style={{ left: sidebarExpanded ? 300 : 72 }}
+        style={{ left: sidebarExpanded ? 300 : 48 }}
       >
         <section className="dashboard-ai-section">
           <AITemplateGenerator />

@@ -3,7 +3,7 @@ import { Layer, Group, Path, Rect, Text } from 'react-konva'
 import { subscribeToCursors } from '../../services/presence'
 import type { Viewport } from './InfiniteCanvas'
 
-const CURSOR_IDLE_TIMEOUT_MS = 5000 // Hide cursor after 5s without movement
+const CURSOR_IDLE_TIMEOUT_MS = 5 * 60 * 1000 // Hide and remove cursor after 5min without movement
 const SNAP_THRESHOLD = 0.5 // px - when to stop interpolating
 const MAX_INTERPOLATION_DISTANCE = 200 // px - snap immediately for large jumps
 const SMOOTH_FACTOR = 0.25 // 0.2-0.3: lower = smoother, higher = more responsive
@@ -51,12 +51,15 @@ function CursorLayer({
     if (!boardId) return () => {}
 
     const unsubscribe = subscribeToCursors(boardId, (cursors) => {
-      const updateTime = Date.now()
+      const now = Date.now()
 
       setInterpolatedCursors((prev) => {
         const next = new Map(prev)
 
         for (const cursor of cursors) {
+          const lastUpdate = cursor.lastUpdated ?? now
+          if (now - lastUpdate > CURSOR_IDLE_TIMEOUT_MS) continue
+
           const existing = next.get(cursor.userId)
 
           if (existing) {
@@ -66,7 +69,7 @@ function CursorLayer({
               targetY: cursor.y,
               displayName: cursor.displayName,
               color: cursor.color,
-              lastUpdate: updateTime,
+              lastUpdate,
             })
           } else {
             next.set(cursor.userId, {
@@ -77,14 +80,16 @@ function CursorLayer({
               currentY: cursor.y,
               targetX: cursor.x,
               targetY: cursor.y,
-              lastUpdate: updateTime,
+              lastUpdate,
             })
           }
         }
 
         const activeIds = new Set(cursors.map((c) => c.userId))
-        for (const [userId] of next) {
-          if (!activeIds.has(userId)) next.delete(userId)
+        for (const [userId, cursor] of next) {
+          if (!activeIds.has(userId) || now - cursor.lastUpdate > CURSOR_IDLE_TIMEOUT_MS) {
+            next.delete(userId)
+          }
         }
 
         return next

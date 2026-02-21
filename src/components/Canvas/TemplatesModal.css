@@ -1,0 +1,167 @@
+.templates-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.templates-modal-content {
+  width: 100%;
+  max-width: 900px;
+  max-height: 85vh;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.templates-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.templates-modal-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.templates-modal-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.templates-modal-close:hover {
+  background: #f3f4f6;
+  color: #1a1a1a;
+}
+
+.templates-modal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.templates-modal-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  padding: 16px;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.templates-modal-category {
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.templates-modal-category:hover {
+  background: #f3f4f6;
+}
+
+.templates-modal-category.active {
+  background: #eff6ff;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.templates-modal-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.templates-modal-search {
+  margin: 16px 24px 0;
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.templates-modal-search:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.templates-modal-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.templates-modal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.templates-modal-card:hover {
+  border-color: #8093F1;
+  box-shadow: 0 4px 12px rgba(128, 147, 241, 0.2);
+}
+
+.templates-modal-card-preview {
+  height: 100px;
+  border-radius: 8px 8px 0 0;
+  background: #f9fafb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.templates-modal-card-title {
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.templates-modal-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+}

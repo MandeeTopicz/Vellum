@@ -55,6 +55,8 @@ interface WhiteboardToolbarProps {
   onUndo?: () => void
   onRedo?: () => void
   canEdit: boolean
+  /** Opens Templates modal and deselects active tool */
+  onTemplatesClick?: () => void
 }
 
 export default function WhiteboardToolbar({
@@ -64,6 +66,7 @@ export default function WhiteboardToolbar({
   onUndo,
   onRedo,
   canEdit,
+  onTemplatesClick,
 }: WhiteboardToolbarProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
@@ -160,13 +163,18 @@ export default function WhiteboardToolbar({
           className="toolbar-icon-btn"
           onClick={() => {
             closeAllDropdowns()
-            setTemplatesOpen((v) => !v)
+            if (onTemplatesClick) {
+              onTemplatesClick()
+            } else {
+              setTemplatesOpen((v) => !v)
+            }
           }}
           title="Templates"
+          aria-label="Templates"
         >
           <img src={templatesIcon} alt="Templates" width={20} height={20} />
         </button>
-        {templatesOpen && (
+        {templatesOpen && !onTemplatesClick && (
           <div className="toolbar-dropdown-panel">
             <p className="toolbar-coming-soon">Templates Coming Soon</p>
           </div>

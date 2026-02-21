@@ -46,16 +46,9 @@ export default function AITemplateGenerator() {
 
   return (
     <div className="ai-template-generator">
-      <div className="generator-header">
-        <div className="generator-header-icon">
-          <Sparkles size={28} color="#8093F1" />
-        </div>
-        <div>
-          <h3 className="generator-title">AI Template Generator</h3>
-          <p className="generator-subtitle">
-            Describe what you want to create and AI will build it for you
-          </p>
-        </div>
+      <div className="generator-title-wrap">
+        <Sparkles size={28} color="#8093F1" className="generator-title-icon" />
+        <h3 className="generator-title">Need help drafting a template?</h3>
       </div>
 
       <div className="generator-content">
@@ -69,36 +62,8 @@ export default function AITemplateGenerator() {
             rows={4}
             disabled={loading}
           />
-        </div>
-
-        {error && (
-          <div className="generator-error-message">
-            <p>{error}</p>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={loading || !prompt.trim()}
-          className="generator-button"
-        >
-          {loading ? (
-            <>
-              <Loader2 size={20} className="generator-spinner" />
-              <span>Generating…</span>
-            </>
-          ) : (
-            <>
-              <Sparkles size={20} />
-              <span>Generate Template</span>
-            </>
-          )}
-        </button>
-
-        <div className="example-prompts">
-          <p className="examples-label">Try these examples:</p>
-          <div className="example-chips">
+          <div className="prompt-input-footer">
+            <div className="example-chips">
             <button
               type="button"
               className="example-chip"
@@ -148,7 +113,32 @@ export default function AITemplateGenerator() {
               Journey Map
             </button>
           </div>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={loading || !prompt.trim()}
+              className="generator-button"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={20} className="generator-spinner" />
+                  <span>Generating…</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={20} />
+                  <span>Generate Template</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {error && (
+          <div className="generator-error-message">
+            <p>{error}</p>
+          </div>
+        )}
       </div>
     </div>
   )

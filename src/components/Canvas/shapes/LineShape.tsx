@@ -33,6 +33,9 @@ export function LineShape({
 
   const { objectId, start, end, strokeColor, strokeWidth, connectionType } = obj
   const ct = connectionType ?? 'line'
+  const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
+  const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
   const minX = Math.min(start.x, end.x)
   const minY = Math.min(start.y, end.y)
   const dx = end.x - start.x
@@ -130,6 +133,7 @@ export function LineShape({
         ref={groupRef}
         x={minX}
         y={minY}
+        opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
       >
@@ -152,6 +156,7 @@ export function LineShape({
             fill={selected ? '#8093F1' : strokeColor ?? '#000'}
             stroke={selected ? '#8093F1' : strokeColor ?? '#000'}
             strokeWidth={selected ? 3 : strokeWidth ?? 2}
+            dash={dash}
             perfectDrawEnabled={false}
             listening={false}
           />
@@ -160,6 +165,7 @@ export function LineShape({
             points={points}
             stroke={selected ? '#8093F1' : strokeColor ?? '#000'}
             strokeWidth={selected ? 3 : strokeWidth ?? 2}
+            dash={dash}
             perfectDrawEnabled={false}
             listening={false}
           />

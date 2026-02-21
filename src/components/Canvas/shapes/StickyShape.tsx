@@ -75,6 +75,7 @@ export function StickyShape({
   )
 
   const { position, dimensions, content, fillColor, textStyle } = obj
+  const opacity = (obj as { opacity?: number }).opacity ?? 1
 
   return (
     <>
@@ -82,6 +83,7 @@ export function StickyShape({
         ref={groupRef}
         x={position.x}
         y={position.y}
+        opacity={opacity}
         {...handlers}
         onDblClick={canEdit ? () => onStickyDoubleClick(obj.objectId) : undefined}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}

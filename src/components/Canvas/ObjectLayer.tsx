@@ -3,6 +3,7 @@ import { Rect } from 'react-konva'
 import type { ObjectsMap, BoardObject } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
 import { isResizableType } from './shapes'
+import { getObjectBounds } from '../../utils/objectBounds'
 
 const ZOOMED_OUT_THRESHOLD = 0.25
 
@@ -28,44 +29,6 @@ function getSimplifiedRectProps(obj: BoardObject): { x: number; y: number; width
     width: bounds.right - bounds.left || 20,
     height: bounds.bottom - bounds.top || 20,
     fill,
-  }
-}
-
-/**
- * Get bounding box for any board object (position+dimensions, line start/end, or pen points).
- */
-function getObjectBounds(obj: BoardObject): { left: number; top: number; right: number; bottom: number } {
-  if (obj.type === 'line') {
-    const line = obj as { start: { x: number; y: number }; end: { x: number; y: number } }
-    const left = Math.min(line.start.x, line.end.x)
-    const right = Math.max(line.start.x, line.end.x)
-    const top = Math.min(line.start.y, line.end.y)
-    const bottom = Math.max(line.start.y, line.end.y)
-    return { left, top, right, bottom }
-  }
-  if (obj.type === 'pen') {
-    const pen = obj as { points: [number, number][] }
-    if (pen.points.length === 0) return { left: 0, top: 0, right: 0, bottom: 0 }
-    let minX = pen.points[0][0]
-    let minY = pen.points[0][1]
-    let maxX = minX
-    let maxY = minY
-    for (let i = 1; i < pen.points.length; i++) {
-      const [x, y] = pen.points[i]
-      minX = Math.min(minX, x)
-      minY = Math.min(minY, y)
-      maxX = Math.max(maxX, x)
-      maxY = Math.max(maxY, y)
-    }
-    return { left: minX, top: minY, right: maxX, bottom: maxY }
-  }
-  const pos = (obj as { position: { x: number; y: number } }).position
-  const dims = (obj as { dimensions?: { width: number; height: number } }).dimensions ?? { width: 100, height: 100 }
-  return {
-    left: pos.x,
-    top: pos.y,
-    right: pos.x + dims.width,
-    bottom: pos.y + dims.height,
   }
 }
 
@@ -166,9 +129,9 @@ function ObjectLayerInner({
   const sortedObjects = useMemo(
     () =>
       Object.values(objects).sort((a, b) => {
-        const aMs = a.createdAt?.toMillis?.() ?? 0
-        const bMs = b.createdAt?.toMillis?.() ?? 0
-        return aMs - bMs
+        const aOrder = a.displayOrder ?? a.createdAt?.toMillis?.() ?? 0
+        const bOrder = b.displayOrder ?? b.createdAt?.toMillis?.() ?? 0
+        return aOrder - bOrder
       }),
     [objects]
   )
