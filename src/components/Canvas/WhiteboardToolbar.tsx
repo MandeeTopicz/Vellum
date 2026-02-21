@@ -6,7 +6,6 @@ import textIcon from '../../assets/text-icon.png'
 import shapesIcon from '../../assets/shapes-icon.png'
 import emojiIcon from '../../assets/emoji-icon.png'
 import commentIcon from '../../assets/comment-icon.png'
-import linkIcon from '../../assets/link-icon.png'
 import redoIcon from '../../assets/redo-icon.png'
 import undoIcon from '../../assets/undo-icon.png'
 import pencilIcon from '../../assets/pencil-icon.png'
@@ -58,10 +57,6 @@ interface WhiteboardToolbarProps {
   canEdit: boolean
   /** Opens Templates modal and deselects active tool */
   onTemplatesClick?: () => void
-  /** Link tool: if selection exists, opens link editor; else shows hint */
-  onLinkClick?: () => void
-  /** Show "Select an object to add a link" hint near Link button */
-  linkToolHint?: boolean
 }
 
 export default function WhiteboardToolbar({
@@ -72,8 +67,6 @@ export default function WhiteboardToolbar({
   onRedo,
   canEdit,
   onTemplatesClick,
-  onLinkClick,
-  linkToolHint,
 }: WhiteboardToolbarProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
@@ -356,37 +349,6 @@ export default function WhiteboardToolbar({
       >
         <img src={commentIcon} alt="Comment" width={20} height={20} />
       </button>
-
-      <div className="toolbar-dropdown" style={{ position: 'relative' }}>
-        <button
-          type="button"
-          className="toolbar-icon-btn"
-          onClick={() => {
-            closeAllDropdowns()
-            onLinkClick?.()
-          }}
-          disabled={!canEdit}
-          title="Link"
-          aria-label="Add link to object"
-        >
-          <img src={linkIcon} alt="Link" width={20} height={20} />
-        </button>
-        {linkToolHint && (
-          <div
-            className="toolbar-dropdown-panel"
-            style={{
-              position: 'absolute',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              top: '100%',
-              marginTop: '4px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Select an object to add a link
-          </div>
-        )}
-      </div>
 
       <div className="toolbar-divider" />
 

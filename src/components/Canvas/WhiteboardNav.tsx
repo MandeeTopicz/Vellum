@@ -116,7 +116,6 @@ export default function WhiteboardNav({
                   </button>
                 ))}
               </div>
-              <p className="whiteboard-nav-coming-soon">Stickers, Timer, Voting - Coming Soon</p>
             </div>
           )}
         </div>

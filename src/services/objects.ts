@@ -345,7 +345,6 @@ export function subscribeToObjects(boardId: string, callback: (objects: ObjectsM
     },
     (err) => {
       console.error('[objects] subscribeToObjects:', err)
-      callback({})
     }
   )
 }
@@ -359,6 +358,67 @@ export function subscribeToObjects(boardId: string, callback: (objects: ObjectsM
 export async function getBoardObjectsOnce(boardId: string): Promise<BoardObject[]> {
   const snapshot = await getDocs(objectsCol(boardId))
   return snapshot.docs.map((d) => docToObject(boardId, d.id, d.data() as Record<string, unknown>))
+}
+
+/**
+ * Builds a BoardObject from createInput for optimistic display.
+ * Used to show objects immediately before Firestore snapshot arrives.
+ * @param objectId - The new object's ID
+ * @param input - CreateObjectInput used for creation
+ * @returns BoardObject for optimistic UI
+ */
+export function createInputToBoardObject(objectId: string, input: CreateObjectInput): BoardObject {
+  const user = auth.currentUser
+  const uid = user?.uid ?? ''
+  const now = Timestamp.now()
+  const base = {
+    objectId,
+    createdBy: uid,
+    createdAt: now,
+    updatedAt: now,
+  }
+  const pos = 'position' in input ? input.position : { x: 0, y: 0 }
+  const dims = 'dimensions' in input ? input.dimensions : { width: 100, height: 100 }
+  const parentId = 'parentId' in input ? (input.parentId ?? null) : null
+  const localX = 'localX' in input && typeof input.localX === 'number' ? input.localX : pos.x
+  const localY = 'localY' in input && typeof input.localY === 'number' ? input.localY : pos.y
+  if (input.type === 'sticky') {
+    return {
+      ...base,
+      type: 'sticky',
+      position: pos,
+      dimensions: dims,
+      content: input.content ?? '',
+      fillColor: input.fillColor ?? '#fef08a',
+      textStyle: { ...DEFAULT_TEXT_STYLE, ...input.textStyle },
+      cornerRadius: input.cornerRadius,
+      opacity: input.opacity,
+      parentId: parentId ?? undefined,
+      localX,
+      localY,
+    } as StickyObject
+  }
+  if (input.type === 'text') {
+    return {
+      ...base,
+      type: 'text',
+      position: pos,
+      dimensions: dims,
+      content: input.content ?? '',
+      textStyle: { ...DEFAULT_TEXT_STYLE, ...input.textStyle },
+      parentId: parentId ?? undefined,
+      localX,
+      localY,
+    } as TextObject
+  }
+  const shapeBase = {
+    ...base,
+    type: input.type,
+    position: pos,
+    dimensions: dims,
+    ...(parentId !== null && { parentId: parentId ?? undefined, localX, localY }),
+  }
+  return shapeBase as BoardObject
 }
 
 /**

@@ -2,7 +2,7 @@
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
 import { useEffect, useCallback, useMemo, useRef } from 'react'
-import { createObject, updateObject, deleteObject, batchUpdatePositions, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
+import { createObject, updateObject, deleteObject, batchUpdatePositions, createInputToBoardObject, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
 import { objToCreateInput, getObjectsBboxMin } from '../services/aiTools/shared'
 import {
   createComment,
@@ -430,11 +430,12 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         if ('start' in updates) {
           return { ...prev, [objectId]: { ...o, start: updates.start, end: updates.end } }
         }
-        const next: BoardObject = {
+        const posUpdates = updates as { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
+        const next = {
           ...o,
-          position: updates.position,
-          dimensions: updates.dimensions,
-        }
+          position: posUpdates.position,
+          dimensions: posUpdates.dimensions,
+        } as BoardObject
         if (typeof (updates as { rotation?: number }).rotation === 'number') {
           (next as { rotation?: number }).rotation = (updates as { rotation: number }).rotation
         }
@@ -582,6 +583,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         }
         if (input) {
           const objectId = await createObject(id, input)
+          setObjects((prev) => ({ ...prev, [objectId]: createInputToBoardObject(objectId, input) }))
           pushUndo({ type: 'create', objectId, createInput: input })
           if (activeTool === 'sticky') {
             setEditingStickyId(objectId)
@@ -616,7 +618,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         setActiveTool('pointer')
       }
     },
-    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects]
+    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects, setObjects]
   )
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
@@ -680,6 +682,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           textStyle: editingText.textStyle,
         }
         const objectId = await createObject(id, input)
+        setObjects((prev) => ({ ...prev, [objectId]: createInputToBoardObject(objectId, input) }))
         pushUndo({ type: 'create', objectId, createInput: input })
       } else {
         const objectId = editingText.id!
@@ -692,7 +695,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       setEditingText(null)
       setActiveTool('pointer')
     },
-    [id, canEdit, editingText, objects, pushUndo]
+    [id, canEdit, editingText, objects, pushUndo, setObjects]
   )
 
   const handleTextCancel = useCallback(() => {
@@ -885,23 +888,6 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       await updateObject(id, objectId, updates)
     },
     [id, canEdit]
-  )
-
-  const handleLinkSave = useCallback(
-    async (objectId: string, url: string | null) => {
-      if (!id || !canEdit) return
-      const obj = objects[objectId]
-      if (!obj) return
-      const from = { linkUrl: (obj as { linkUrl?: string | null }).linkUrl }
-      pushUndo({ type: 'update', objectId, from, to: { linkUrl: url } })
-      setObjects((prev: ObjectsMap) => {
-        const o = prev[objectId]
-        if (!o) return prev
-        return { ...prev, [objectId]: { ...o, linkUrl: url } }
-      })
-      await updateObject(id, objectId, { linkUrl: url })
-    },
-    [id, canEdit, objects, pushUndo, setObjects]
   )
 
   const handleCopy = useCallback(() => {
@@ -1223,7 +1209,6 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     handleEraserMove,
     handleBoardNameChange,
     handleObjectStyleUpdate,
-    handleLinkSave,
     handleSelectionBoxEnd,
     handleCopy,
     handlePaste,

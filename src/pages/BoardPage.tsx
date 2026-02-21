@@ -21,7 +21,6 @@ import TextFormatToolbar from '../components/Canvas/TextFormatToolbar'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
 import { StyleToolbar } from '../components/Canvas/StyleToolbar'
-import { LinkEditPopover } from '../components/Canvas/LinkEditPopover'
 import { ContextMenu } from '../components/Canvas/ContextMenu'
 import { TemplatesModal } from '../components/Canvas/TemplatesModal'
 import InviteModal from '../components/Invite/InviteModal'
@@ -210,8 +209,6 @@ export default function BoardPage() {
           onUndo={handleUndo}
           onRedo={handleRedo}
           canEdit={canEdit}
-          onLinkClick={() => tools.handleLinkToolClick(tools.selectedIds)}
-          linkToolHint={tools.linkToolHint}
           onTemplatesClick={
             canEdit
               ? () => {
@@ -351,7 +348,6 @@ export default function BoardPage() {
                 selectedIds.forEach((id) => events.handleObjectStyleUpdate(id, updates as ObjectUpdates))
               }}
               position={{ x: stageX, y: stageY }}
-              onLinkClick={() => tools.setLinkModalObjectId(selectedIds[0])}
               onCopy={events.handleCopy}
               onPaste={events.handlePaste}
               onDuplicate={events.handleDuplicate}
@@ -359,34 +355,6 @@ export default function BoardPage() {
               onSendToFront={events.handleSendToFront}
               onBringToBack={events.handleBringToBack}
               canPaste={tools.copiedObjects.length > 0}
-            />
-          )
-        })()}
-
-        {tools.linkModalObjectId && (() => {
-          const linkObj = objects[tools.linkModalObjectId]
-          if (!linkObj) return null
-          let centerX = 0
-          let topY = 0
-          if ('position' in linkObj && linkObj.position) {
-            const dims = 'dimensions' in linkObj ? (linkObj.dimensions ?? { width: 0, height: 0 }) : { width: 0, height: 0 }
-            centerX = linkObj.position.x + (dims as { width: number }).width / 2
-            topY = linkObj.position.y
-          } else if (linkObj.type === 'line') {
-            const line = linkObj as { start: { x: number; y: number }; end: { x: number; y: number } }
-            centerX = (line.start.x + line.end.x) / 2
-            topY = Math.min(line.start.y, line.end.y)
-          }
-          const { x: stageX, y: stageY } = canvasToStage(centerX, topY, viewport)
-          const rect = containerRef.current?.getBoundingClientRect()
-          const pos = rect ? { x: rect.left + stageX, y: rect.top + stageY } : { x: stageX, y: stageY }
-          return (
-            <LinkEditPopover
-              objectId={tools.linkModalObjectId}
-              currentUrl={(linkObj as { linkUrl?: string | null }).linkUrl}
-              position={pos}
-              onSave={(oid, url) => events.handleLinkSave(oid, url)}
-              onClose={() => tools.setLinkModalObjectId(null)}
             />
           )
         })()}
@@ -426,21 +394,6 @@ export default function BoardPage() {
               onDelete={events.handleDelete}
               onSendToFront={events.handleSendToFront}
               onBringToBack={events.handleBringToBack}
-              onOpenLink={
-                tools.selectedIds.size === 1
-                  ? (() => {
-                      const o = objects[Array.from(tools.selectedIds)[0]] as { linkUrl?: string | null } | undefined
-                      const url = o?.linkUrl
-                      if (!url) return undefined
-                      return () => {
-                        const u = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')
-                          ? url
-                          : `https://${url}`
-                        window.open(u, '_blank', 'noopener,noreferrer')
-                      }
-                    })()
-                  : undefined
-              }
               onResetRotation={
                 tools.selectedIds.size === 1
                   ? (() => {
@@ -449,11 +402,6 @@ export default function BoardPage() {
                       if (rot === 0) return undefined
                       return () => events.handleObjectStyleUpdate(Array.from(tools.selectedIds)[0], { rotation: 0 })
                     })()
-                  : undefined
-              }
-              onLinkClick={
-                tools.selectedIds.size >= 1 && canEdit
-                  ? () => tools.setLinkModalObjectId(Array.from(tools.selectedIds)[0])
                   : undefined
               }
             />

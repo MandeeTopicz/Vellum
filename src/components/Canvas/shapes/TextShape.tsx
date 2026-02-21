@@ -75,6 +75,7 @@ export function TextShape({
     }
   }
 
+  const { width: w, height: h } = dimensions
   const handlers = {
     ...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool),
     onDragEnd: (e: { target: Konva.Node }) => {
@@ -87,16 +88,6 @@ export function TextShape({
       node.position({ x: topLeftX + w / 2, y: topLeftY + h / 2 })
     },
   }
-
-  const _handlers = shapeHandlers(
-    objectId,
-    viewport,
-    canEdit,
-    selected,
-    onObjectDragEnd,
-    onObjectClick,
-    isPointerTool
-  )
 
   const displayText =
     textStyle?.bulletList && content

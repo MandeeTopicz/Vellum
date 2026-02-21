@@ -81,7 +81,7 @@ export function PenStrokePreview({ stroke }: { stroke: CurrentPenStroke }) {
 interface PenShapeProps {
   obj: PenObject
   isPointerTool: boolean
-  onObjectClick: (objectId: string, e: { ctrlKey: boolean }) => void
+  onObjectClick: (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => void
 }
 
 export function PenShape({ obj, isPointerTool, onObjectClick }: PenShapeProps) {
@@ -91,7 +91,7 @@ export function PenShape({ obj, isPointerTool, onObjectClick }: PenShapeProps) {
   return (
     <Group
       listening={isPointerTool}
-      onClick={(e) => isPointerTool && onObjectClick(objectId, { ctrlKey: e.evt.ctrlKey })}
+      onClick={(e) => isPointerTool && onObjectClick(objectId, { ctrlKey: e.evt.ctrlKey, metaKey: e.evt.metaKey })}
     >
       {renderPenStroke(flatPoints, color, strokeWidth, opacity, strokeType)}
     </Group>

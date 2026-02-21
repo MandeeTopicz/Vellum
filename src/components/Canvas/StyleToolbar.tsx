@@ -25,8 +25,6 @@ interface StyleToolbarProps {
   onBringToBack?: () => void
   /** Whether paste is available (clipboard has content) */
   canPaste?: boolean
-  /** Open link editor for selected object(s) */
-  onLinkClick?: () => void
 }
 
 function isRotatable(obj: BoardObject): obj is BoardObject & { rotation?: number } {
@@ -56,7 +54,6 @@ export function StyleToolbar({
   onSendToFront,
   onBringToBack,
   canPaste = false,
-  onLinkClick,
 }: StyleToolbarProps) {
   const [showBorderDropdown, setShowBorderDropdown] = useState(false)
   const [showFillDropdown, setShowFillDropdown] = useState(false)
@@ -126,7 +123,6 @@ export function StyleToolbar({
   const showCornersControl = hasCornerRadius(selectedObject)
   const rotation = isRotatable(selectedObject) ? (selectedObject.rotation ?? 0) : 0
   const hasRotation = isRotatable(selectedObject)
-  const linkUrl = (selectedObject as { linkUrl?: string | null }).linkUrl
 
   const TOOLBAR_WIDTH = 180
   const halfWidth = TOOLBAR_WIDTH / 2
@@ -581,31 +577,6 @@ export function StyleToolbar({
             </button>
           )}
         </div>
-      )}
-
-      {/* Link button – chain icon when object has link, or add link */}
-      {onLinkClick && (
-        <button
-          type="button"
-          title={linkUrl ? 'Edit link' : 'Add link'}
-          onClick={onLinkClick}
-          style={{
-            width: '36px',
-            height: '36px',
-            border: linkUrl ? '2px solid #3b82f6' : '1px solid #d1d5db',
-            borderRadius: '6px',
-            background: linkUrl ? '#eff6ff' : 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        </button>
       )}
 
       {/* More button – three dots */}

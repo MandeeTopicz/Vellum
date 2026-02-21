@@ -60,8 +60,6 @@ export function useBoardTools(canEdit: boolean) {
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false)
   const [templatesSearch, setTemplatesSearch] = useState('')
   const [templatesCategory, setTemplatesCategory] = useState('Meetings & Workshops')
-  const [linkModalObjectId, setLinkModalObjectId] = useState<string | null>(null)
-  const [linkToolHint, setLinkToolHint] = useState(false)
 
   const currentPenPointsRef = useRef<[number, number][]>([])
   const justClosedStickyEditorRef = useRef(false)
@@ -116,18 +114,6 @@ export function useBoardTools(canEdit: boolean) {
   const handleEmojiSelect = useCallback((emoji: string) => {
     setPendingEmoji(emoji)
   }, [])
-
-  const handleLinkToolClick = useCallback(
-    (selectedIds: Set<string>) => {
-      if (selectedIds.size === 0) {
-        setLinkToolHint(true)
-        setTimeout(() => setLinkToolHint(false), 2500)
-      } else {
-        setLinkModalObjectId(Array.from(selectedIds)[0])
-      }
-    },
-    []
-  )
 
   const handleGridToggle = useCallback(() => {
     setShowGrid((v) => {
@@ -191,9 +177,5 @@ export function useBoardTools(canEdit: boolean) {
     setTemplatesSearch,
     templatesCategory,
     setTemplatesCategory,
-    linkModalObjectId,
-    setLinkModalObjectId,
-    linkToolHint,
-    handleLinkToolClick,
   }
 }

@@ -110,7 +110,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     case 'sticky': {
       const s = obj as { cornerRadius?: number; opacity?: number }
       return withRotationAndLink({
-        type: 'sticky',
+        type: 'sticky' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         content: obj.content,
@@ -123,7 +123,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     case 'rectangle': {
       const style = shapeStyle(obj)
       return withRotationAndLink({
-        type: 'rectangle',
+        type: 'rectangle' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         fillColor: style.fillColor,
@@ -140,7 +140,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       const style = shapeStyle(obj)
       const tri = obj as { inverted?: boolean }
       return withRotationAndLink({
-        type: obj.type,
+        type: obj.type as 'circle' | 'triangle',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         fillColor: style.fillColor,
@@ -155,7 +155,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     case 'line': {
       const line = obj as { strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
       return withRotationAndLink({
-        type: 'line',
+        type: 'line' as const,
         start: { x: obj.start.x + dx, y: obj.start.y + dy },
         end: { x: obj.end.x + dx, y: obj.end.y + dy },
         strokeColor: obj.strokeColor,
@@ -167,7 +167,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     }
     case 'text':
       return withRotationAndLink({
-        type: 'text',
+        type: 'text' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         content: obj.content,
@@ -175,7 +175,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       }, obj)
     case 'emoji':
       return withRotationAndLink({
-        type: 'emoji',
+        type: 'emoji' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         emoji: obj.emoji,
         fontSize: obj.fontSize,
@@ -184,7 +184,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       const pen = obj as { points: [number, number][]; color?: string; strokeWidth?: number; isHighlighter?: boolean; opacity?: number; strokeType?: 'solid' | 'dotted' | 'double' }
       const points = pen.points.map((p) => [p[0] + dx, p[1] + dy] as [number, number])
       return withRotationAndLink({
-        type: 'pen',
+        type: 'pen' as const,
         points,
         color: pen.color,
         strokeWidth: pen.strokeWidth,
@@ -206,7 +206,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       const style = shapeStyle(obj)
       const arr = obj as { direction?: 'right' | 'left' }
       return withRotationAndLink({
-        type: obj.type,
+        type: obj.type as 'diamond' | 'star' | 'pentagon' | 'hexagon' | 'octagon' | 'plus' | 'arrow' | 'tab-shape' | 'trapezoid' | 'circle-cross',
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         fillColor: style.fillColor,
@@ -222,7 +222,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       const style = shapeStyle(obj)
       const p = obj as { shapeKind?: 'right' | 'left' }
       return withRotationAndLink({
-        type: 'parallelogram',
+        type: 'parallelogram' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         fillColor: style.fillColor,
@@ -238,7 +238,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
       const style = shapeStyle(obj)
       const c = obj as { shapeKind?: 'vertical' | 'horizontal' }
       return withRotationAndLink({
-        type: 'cylinder',
+        type: 'cylinder' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         fillColor: style.fillColor,
@@ -252,7 +252,7 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
     }
     case 'frame':
       return withRotationAndLink({
-        type: 'frame',
+        type: 'frame' as const,
         position: { x: obj.position.x + dx, y: obj.position.y + dy },
         dimensions: obj.dimensions,
         title: (obj as { title?: string }).title,
