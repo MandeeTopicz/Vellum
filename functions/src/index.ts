@@ -1,4 +1,5 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
+import { apiApp } from './api'
 import { defineSecret } from 'firebase-functions/params'
 import { logger } from 'firebase-functions'
 import OpenAI from 'openai'
@@ -690,5 +691,26 @@ export const processAICommand = onCall(
 
       throw new HttpsError('internal', msg)
     }
+  }
+)
+
+export const api = onRequest(
+  {
+    cors: [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
+      'https://vellum-6f172.web.app',
+    ],
+    timeoutSeconds: 60,
+    memory: '512MiB',
+  },
+  (req, res) => {
+    // Preserve raw body for busboy (multipart parsing)
+    const r = req as { rawBody?: Buffer; body?: Buffer }
+    if (!('rawBody' in r) && r.body) {
+      r.rawBody = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body as ArrayBuffer)
+    }
+    apiApp(req, res)
   }
 )

@@ -21,6 +21,10 @@ interface ContextMenuProps {
   onBringToBack?: () => void
   /** Reset rotation to 0 (single selection, when rotation !== 0) */
   onResetRotation?: () => void
+  /** Convert selected pen strokes to text (shown when selection is pen-only) */
+  onConvertToText?: () => void
+  /** Whether selection contains only pen strokes (show Convert to text) */
+  selectionIsPenOnly?: boolean
 }
 
 export function ContextMenu({
@@ -36,6 +40,8 @@ export function ContextMenu({
   onSendToFront,
   onBringToBack,
   onResetRotation,
+  onConvertToText,
+  selectionIsPenOnly,
 }: ContextMenuProps) {
   const [showArrangeSubmenu, setShowArrangeSubmenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -135,6 +141,18 @@ export function ContextMenu({
               }}
             >
               Reset rotation
+            </button>
+          )}
+          {selectionIsPenOnly && onConvertToText && (
+            <button
+              type="button"
+              className="context-menu-item"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                runAndClose(onConvertToText)
+              }}
+            >
+              Convert to text
             </button>
           )}
           {(onSendToFront || onBringToBack) && (

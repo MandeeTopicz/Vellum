@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { Rect } from 'react-konva'
 import type { ObjectsMap, BoardObject } from '../../types'
 import type { Viewport } from './InfiniteCanvas'
@@ -53,6 +53,7 @@ function isInViewport(
   const { left, top, right, bottom } = bounds
   return left < viewRight && right > viewLeft && top < viewBottom && bottom > viewTop
 }
+import type { MultiDragStartPositions } from './shapes/shared'
 import {
   RectangleShape,
   CircleShape,
@@ -89,6 +90,7 @@ interface ObjectLayerProps {
   selectedIds: Set<string>
   isPointerTool: boolean
   onObjectDragEnd: (objectId: string, x: number, y: number) => void
+  onObjectDragStart?: () => void
   onObjectClick: (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => void
   onObjectResizeEnd?: (objectId: string, updates: ObjectResizeUpdates) => void
   onStickyDoubleClick: (objectId: string) => void
@@ -102,6 +104,14 @@ interface ObjectLayerProps {
     endY: number
     type: string
   } | null
+  multiDragPositions?: Record<string, { x: number; y: number }> | null
+  multiDragLineEndpoints?: Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> | null
+  multiDragStartPositionsRef?: React.MutableRefObject<Record<string, { x: number; y: number }> | null>
+  multiDragStartPointerRef?: React.MutableRefObject<{ x: number; y: number } | null>
+  onMultiDragStart?: (positions: Record<string, { x: number; y: number }>) => void
+  onMultiDragMove?: (positions: Record<string, { x: number; y: number }>) => void
+  /** ID of text object just created from handwriting conversion (play scale-in animation) */
+  convertJustFinishedId?: string | null
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -122,6 +132,7 @@ function ObjectLayerInner({
   selectedIds,
   isPointerTool,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   onStickyDoubleClick,
@@ -129,6 +140,13 @@ function ObjectLayerInner({
   canEdit,
   currentPenStroke,
   arrowPreview,
+  multiDragPositions,
+  multiDragLineEndpoints,
+  multiDragStartPositionsRef: multiDragStartPositionsRefProp,
+  multiDragStartPointerRef: multiDragStartPointerRefProp,
+  onMultiDragStart,
+  onMultiDragMove,
+  convertJustFinishedId,
 }: ObjectLayerProps) {
   const framesById = useMemo<FramesByIdMap>(() => {
     const map: FramesByIdMap = {}
@@ -159,9 +177,30 @@ function ObjectLayerInner({
     [sortedObjects, viewport, canvasWidth, canvasHeight, framesById]
   )
 
+  const visibleObjectsSorted = useMemo(() => {
+    const selected = visibleObjects.filter((o) => selectedIds.has(o.objectId))
+    const nonSelected = visibleObjects.filter((o) => !selectedIds.has(o.objectId))
+    return [...nonSelected, ...selected]
+  }, [visibleObjects, selectedIds])
+
   const resizable = canEdit && onObjectResizeEnd
   const showEffects = viewport.scale > 0.5
   const isZoomedOut = viewport.scale < ZOOMED_OUT_THRESHOLD
+  const internalMultiDragStartRef = useRef<MultiDragStartPositions | null>(null)
+  const multiDragStartPositionsRef = multiDragStartPositionsRefProp ?? internalMultiDragStartRef
+
+  const multiSelectProps =
+    selectedIds.size > 1 && onMultiDragStart && onMultiDragMove
+      ? {
+          selectedIds,
+          multiDragStartPositionsRef,
+          multiDragStartPointerRef: multiDragStartPointerRefProp,
+          multiDragPositions: multiDragPositions ?? undefined,
+          onMultiDragStart,
+          onMultiDragMove,
+        }
+      : {}
+  const dragProps = onObjectDragStart ? { onObjectDragStart } : {}
 
   return (
     <>
@@ -177,7 +216,7 @@ function ObjectLayerInner({
       {currentPenStroke && currentPenStroke.points.length >= 2 && (
         <PenStrokePreview stroke={currentPenStroke} />
       )}
-      {visibleObjects.map((obj) => {
+      {visibleObjectsSorted.map((obj) => {
         const selected = selectedIds.has(obj.objectId)
         const resizableForObj = resizable && isResizableType(obj.type)
         if (isZoomedOut && shouldRenderSimplified(obj, isZoomedOut)) {
@@ -209,6 +248,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizable ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -227,6 +268,8 @@ function ObjectLayerInner({
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
               onStickyDoubleClick={onStickyDoubleClick}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -243,6 +286,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -259,6 +304,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -275,6 +322,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -291,6 +340,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -307,6 +358,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -323,6 +376,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -339,6 +394,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -355,6 +412,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -371,6 +430,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -387,6 +448,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -403,6 +466,7 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...multiSelectProps}
             />
           )
         }
@@ -419,6 +483,7 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              {...multiSelectProps}
             />
           )
         }
@@ -434,6 +499,8 @@ function ObjectLayerInner({
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
+              multiDragLineEndpoints={multiDragLineEndpoints}
+              {...multiSelectProps}
             />
           )
         }
@@ -461,6 +528,9 @@ function ObjectLayerInner({
               onObjectClick={onObjectClick}
               onObjectResizeEnd={resizableForObj ? onObjectResizeEnd : undefined}
               onTextDoubleClick={onTextDoubleClick}
+              animateInFromConversion={obj.objectId === convertJustFinishedId}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -476,6 +546,8 @@ function ObjectLayerInner({
               displayPosition={displayPosition}
               onObjectDragEnd={onObjectDragEnd}
               onObjectClick={onObjectClick}
+              {...dragProps}
+              {...multiSelectProps}
             />
           )
         }
@@ -492,7 +564,9 @@ function objectLayerPropsEqual(prev: ObjectLayerProps, next: ObjectLayerProps): 
   if (prev.canvasWidth !== next.canvasWidth || prev.canvasHeight !== next.canvasHeight) return false
   if (prev.isPointerTool !== next.isPointerTool) return false
   if (prev.canEdit !== next.canEdit) return false
+  if (prev.multiDragPositions !== next.multiDragPositions) return false
   if (prev.onObjectDragEnd !== next.onObjectDragEnd) return false
+  if (prev.onObjectDragStart !== next.onObjectDragStart) return false
   if (prev.onObjectClick !== next.onObjectClick) return false
   if (prev.onObjectResizeEnd !== next.onObjectResizeEnd) return false
   if (prev.onStickyDoubleClick !== next.onStickyDoubleClick) return false
@@ -508,6 +582,7 @@ function objectLayerPropsEqual(prev: ObjectLayerProps, next: ObjectLayerProps): 
       prev.arrowPreview.endY !== next.arrowPreview.endY)
   )
     return false
+  if (prev.convertJustFinishedId !== next.convertJustFinishedId) return false
   return true
 }
 

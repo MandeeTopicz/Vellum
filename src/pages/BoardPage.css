@@ -159,3 +159,65 @@
 .board-canvas-container canvas {
   display: block;
 }
+
+/* Convert button loading state */
+.pen-convert-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: pen-convert-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pen-convert-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pen-convert-btn-loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.pen-convert-btn-shake {
+  animation: pen-convert-shake 0.4s ease-in-out;
+}
+
+@keyframes pen-convert-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+/* Overlay during handwriting conversion */
+.pen-convert-overlay {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+  animation: pen-convert-pulse 1.2s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes pen-convert-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}

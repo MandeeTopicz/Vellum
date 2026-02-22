@@ -61,11 +61,13 @@ export function useBoardTools(canEdit: boolean) {
   const [templatesSearch, setTemplatesSearch] = useState('')
   const [templatesCategory, setTemplatesCategory] = useState('Meetings & Workshops')
   const [penStylesOpen, setPenStylesOpen] = useState(true)
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
 
   const currentPenPointsRef = useRef<[number, number][]>([])
   const justClosedStickyEditorRef = useRef(false)
   const justClosedTextEditorRef = useRef(false)
   const justFinishedArrowDragRef = useRef(false)
+  const justFinishedObjectDragRef = useRef(false)
   /** Holds current textarea value while editing; used to commit before closing on background click */
   const textareaValueRef = useRef('')
 
@@ -173,6 +175,7 @@ export function useBoardTools(canEdit: boolean) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    justFinishedObjectDragRef,
     textareaValueRef,
     copiedObjects,
     setCopiedObjects,
@@ -186,5 +189,7 @@ export function useBoardTools(canEdit: boolean) {
     setTemplatesCategory,
     penStylesOpen,
     setPenStylesOpen,
+    linkModalOpen,
+    setLinkModalOpen,
   }
 }

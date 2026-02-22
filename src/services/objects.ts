@@ -59,6 +59,7 @@ export type ObjectUpdates =
   | { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
   | { start: { x: number; y: number }; end: { x: number; y: number } }
   | { content: string }
+  | { content: string; dimensions: { width: number; height: number } }
   | { fillColor: string }
   | { strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted' }
   | { opacity?: number }
@@ -93,7 +94,7 @@ export type CreateObjectInput = (
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
   | { type: 'frame'; position: Point; dimensions: { width: number; height: number }; title?: string }
-) & { rotation?: number; linkUrl?: string | null }
+) & { rotation?: number; linkUrl?: string | null; displayOrder?: number }
 
 /** @internal Adds nesting, rotation, and linkUrl to position-based objects (backward compat) */
 function withNestingFields<T extends BoardObject & { position: { x: number; y: number } }>(
@@ -382,6 +383,7 @@ export function createInputToBoardObject(objectId: string, input: CreateObjectIn
   const parentId = 'parentId' in input ? (input.parentId ?? null) : null
   const localX = 'localX' in input && typeof input.localX === 'number' ? input.localX : pos.x
   const localY = 'localY' in input && typeof input.localY === 'number' ? input.localY : pos.y
+  const rot = typeof (input as { rotation?: number }).rotation === 'number' ? (input as { rotation: number }).rotation : undefined
   if (input.type === 'sticky') {
     return {
       ...base,
@@ -396,6 +398,7 @@ export function createInputToBoardObject(objectId: string, input: CreateObjectIn
       parentId: parentId ?? undefined,
       localX,
       localY,
+      ...(rot !== undefined && { rotation: rot }),
     } as StickyObject
   }
   if (input.type === 'text') {
@@ -409,6 +412,7 @@ export function createInputToBoardObject(objectId: string, input: CreateObjectIn
       parentId: parentId ?? undefined,
       localX,
       localY,
+      ...(rot !== undefined && { rotation: rot }),
     } as TextObject
   }
   const shapeBase = {
@@ -468,10 +472,11 @@ export async function createObject(boardId: string, input: CreateObjectInput): P
   if (input.type === 'pen') {
     docData.points = input.points.flat()
   }
-  /** Firestore rejects undefined - strip keys with undefined values */
+  /** Firestore rejects undefined - strip keys with undefined values. Remove template metadata so placed objects are fully editable. */
+  const TEMPLATE_METADATA_KEYS = ['locked', 'readonly', 'isTemplate', 'templateId', 'editable']
   const sanitized: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(docData)) {
-    if (v !== undefined) sanitized[k] = v
+    if (v !== undefined && !TEMPLATE_METADATA_KEYS.includes(k)) sanitized[k] = v
   }
   const ref = await addDoc(objectsCol(boardId), sanitized)
   return ref.id
@@ -527,8 +532,9 @@ export async function batchCreateObjects(boardId: string, inputs: CreateObjectIn
         docData.points = input.points.flat()
       }
       const sanitized: Record<string, unknown> = {}
+      const TEMPLATE_KEYS = ['locked', 'readonly', 'isTemplate', 'templateId', 'editable']
       for (const [k, v] of Object.entries(docData)) {
-        if (v !== undefined) sanitized[k] = v
+        if (v !== undefined && !TEMPLATE_KEYS.includes(k)) sanitized[k] = v
       }
       batch.set(ref, sanitized)
     }
@@ -547,10 +553,11 @@ export async function batchCreateObjects(boardId: string, inputs: CreateObjectIn
 export async function updateObject(boardId: string, objectId: string, updates: ObjectUpdates): Promise<void> {
   const docUpdates: Record<string, unknown> = { updatedAt: serverTimestamp() }
   for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined || key === 'updatedAt') continue
     if (key === 'dimensions' && value && typeof value === 'object' && 'width' in value && 'height' in value) {
       docUpdates['dimensions.width'] = (value as { width: number }).width
       docUpdates['dimensions.height'] = (value as { height: number }).height
-    } else if (key !== 'updatedAt') {
+    } else {
       docUpdates[key] = value
     }
   }
@@ -600,6 +607,21 @@ export async function deleteObject(boardId: string, objectId: string): Promise<v
 }
 
 /**
+ * Batch-deletes multiple objects atomically (e.g. frame + children + connected lines).
+ * @param boardId - The board ID
+ * @param objectIds - Object IDs to delete
+ * @returns Promise that resolves when the batch deletion is complete
+ */
+export async function batchDeleteObjects(boardId: string, objectIds: string[]): Promise<void> {
+  if (objectIds.length === 0) return
+  const batch = writeBatch(db)
+  for (const oid of objectIds) {
+    batch.delete(objectRef(boardId, oid))
+  }
+  await batch.commit()
+}
+
+/**
  * Deletes all objects on a board. Uses Firestore as source of truth.
  * @param boardId - The board ID
  * @returns Promise resolving to the number of objects deleted
@@ -634,18 +656,24 @@ export async function getBoardSummary(boardId: string): Promise<{ totalCount: nu
   return { totalCount: snapshot.size, byType }
 }
 
-/** @internal Appends rotation and linkUrl to doc if present on object */
+/** @internal Appends rotation, linkUrl, parentId, localX, localY to doc when present on object */
 function withRotationAndLink<T extends Record<string, unknown>>(
   doc: T,
   obj: BoardObject
-): T & { rotation?: number; linkUrl?: string | null } {
+): Record<string, unknown> {
   const rot = (obj as { rotation?: number }).rotation
   const link = (obj as { linkUrl?: string | null }).linkUrl
+  const parentId = (obj as { parentId?: string | null }).parentId
+  const localX = (obj as { localX?: number }).localX
+  const localY = (obj as { localY?: number }).localY
   return {
     ...doc,
     ...(typeof rot === 'number' && { rotation: rot }),
     ...(link !== undefined && { linkUrl: link }),
-  } as T & { rotation?: number; linkUrl?: string | null }
+    ...(parentId !== undefined && { parentId }),
+    ...(typeof localX === 'number' && { localX }),
+    ...(typeof localY === 'number' && { localY }),
+  } as Record<string, unknown>
 }
 
 /**
@@ -719,7 +747,8 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
         },
         obj
       )
-    case 'line':
+    case 'line': {
+      const line = obj as { startObjectId?: string | null; endObjectId?: string | null }
       return withRotationAndLink(
         {
           ...base,
@@ -728,9 +757,12 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
           strokeColor: obj.strokeColor,
           strokeWidth: obj.strokeWidth,
           connectionType: obj.connectionType ?? 'line',
+          ...(line.startObjectId !== undefined && { startObjectId: line.startObjectId }),
+          ...(line.endObjectId !== undefined && { endObjectId: line.endObjectId }),
         },
         obj
       )
+    }
     case 'pen':
       return withRotationAndLink(
         {
@@ -787,4 +819,28 @@ export async function restoreObject(
     updatedAt: serverTimestamp(),
   }
   await setDoc(objectRef(boardId, objectId), revived)
+}
+
+/**
+ * Batch-restores multiple objects atomically (e.g. frame + children + connected lines for undo).
+ * @param boardId - The board ID
+ * @param objects - BoardObjects to restore (full objects with objectId)
+ * @returns Promise that resolves when the batch restore is complete
+ */
+export async function batchRestoreObjects(
+  boardId: string,
+  objects: BoardObject[]
+): Promise<void> {
+  if (objects.length === 0) return
+  const batch = writeBatch(db)
+  for (const obj of objects) {
+    const docData = objectToFirestoreDoc(obj)
+    const revived = {
+      ...docData,
+      createdAt: reviveTimestamp(docData.createdAt),
+      updatedAt: serverTimestamp(),
+    }
+    batch.set(objectRef(boardId, obj.objectId), revived)
+  }
+  await batch.commit()
 }

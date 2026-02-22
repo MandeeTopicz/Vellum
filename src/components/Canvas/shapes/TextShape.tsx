@@ -2,7 +2,7 @@
  * Renders a text box on the canvas with formatting support.
  * Supports 360° rotation via Transformer.
  */
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { Group, Rect, Text, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { TextObject } from '../../../types/objects'
@@ -18,6 +18,8 @@ import {
 export interface TextShapeProps extends BaseShapeProps {
   obj: TextObject
   onTextDoubleClick: (objectId: string) => void
+  /** Play scale-in animation (0.95 → 1) when text was just created from handwriting conversion */
+  animateInFromConversion?: boolean
 }
 
 export function TextShape({
@@ -27,20 +29,39 @@ export function TextShape({
   selected,
   isPointerTool,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   onTextDoubleClick,
   displayPosition,
+  selectedIds,
+  multiDragStartPositionsRef,
+  multiDragStartPointerRef,
+  multiDragPositions,
+  onMultiDragStart,
+  onMultiDragMove,
+  animateInFromConversion = false,
 }: TextShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
   const pos = displayPosition ?? obj.position
 
   const { objectId, dimensions, content, textStyle } = obj
+  const rotation = (obj as { rotation?: number }).rotation ?? 0
   const fontSize = textStyle?.fontSize ?? 16
 
   const hasResizeHandler = !!onObjectResizeEnd
   useShapeTransform(selected, hasResizeHandler, trRef, groupRef)
+
+  const hasStartedScaleAnimRef = useRef(false)
+  useEffect(() => {
+    if (!animateInFromConversion || !groupRef.current || hasStartedScaleAnimRef.current) return
+    hasStartedScaleAnimRef.current = true
+    const node = groupRef.current
+    node.scaleX(0.95)
+    node.scaleY(0.95)
+    node.to({ scaleX: 1, scaleY: 1, duration: 0.15 })
+  }, [animateInFromConversion])
 
   const handleTransformEnd = () => {
     if (!onObjectResizeEnd || !groupRef.current) return
@@ -76,16 +97,23 @@ export function TextShape({
   }
 
   const { width: w, height: h } = dimensions
+  /** When rotated, use center-based positioning so Konva rotates around center (offset pivots) */
+  const useCenter = rotation !== 0
+  const groupX = useCenter ? pos.x + w / 2 : pos.x
+  const groupY = useCenter ? pos.y + h / 2 : pos.y
   const handlers = {
-    ...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool),
+    ...shapeHandlers(objectId, viewport, canEdit, selected, onObjectDragEnd, onObjectClick, isPointerTool, {
+      ...(selectedIds && multiDragStartPositionsRef && onMultiDragStart && onMultiDragMove ? { selectedIds, multiDragStartPositionsRef, multiDragStartPointerRef, onMultiDragStart, onMultiDragMove } : {}),
+      ...(onObjectDragStart && { onObjectDragStart }),
+    }),
     onDragEnd: (e: { target: Konva.Node }) => {
       const node = e.target
       const absPos = node.getAbsolutePosition()
       const canvasPos = stageToCanvas(absPos.x, absPos.y, viewport)
-      const topLeftX = canvasPos.x - w / 2
-      const topLeftY = canvasPos.y - h / 2
+      const topLeftX = useCenter ? canvasPos.x - w / 2 : canvasPos.x
+      const topLeftY = useCenter ? canvasPos.y - h / 2 : canvasPos.y
       onObjectDragEnd(objectId, topLeftX, topLeftY)
-      node.position({ x: topLeftX + w / 2, y: topLeftY + h / 2 })
+      node.position(useCenter ? { x: topLeftX + w / 2, y: topLeftY + h / 2 } : { x: topLeftX, y: topLeftY })
     },
   }
 
@@ -102,8 +130,12 @@ export function TextShape({
     <>
       <Group
         ref={groupRef}
-        x={pos.x}
-        y={pos.y}
+        x={multiDragPositions?.[objectId]?.x ?? groupX}
+        y={multiDragPositions?.[objectId]?.y ?? groupY}
+        scaleX={animateInFromConversion && !hasStartedScaleAnimRef.current ? 0.95 : 1}
+        scaleY={animateInFromConversion && !hasStartedScaleAnimRef.current ? 0.95 : 1}
+        {...(useCenter && { offsetX: w / 2, offsetY: h / 2 })}
+        rotation={rotation}
         {...handlers}
         onDblClick={canEdit ? () => onTextDoubleClick(objectId) : undefined}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}

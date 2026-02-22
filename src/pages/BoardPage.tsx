@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useMemo, memo } from 'react'
+import { useMemo, memo, useState, useCallback, useRef } from 'react'
+import { throttle } from '../utils/throttle'
 import { useAuth } from '../context/AuthContext'
 import { getBoard } from '../services/board'
 import { acceptInvite } from '../services/invites'
@@ -20,18 +21,24 @@ import TextOverlayTextarea from '../components/Canvas/TextOverlayTextarea'
 import TextFormatToolbar from '../components/Canvas/TextFormatToolbar'
 import CommentModal from '../components/Canvas/CommentModal'
 import CommentThreadModal from '../components/Canvas/CommentThreadModal'
+import LinkModal from '../components/Canvas/LinkModal'
 import { StyleToolbar } from '../components/Canvas/StyleToolbar'
 import { ContextMenu } from '../components/Canvas/ContextMenu'
+import { Toast } from '../components/Toast'
 import { TemplatesModal } from '../components/Canvas/TemplatesModal'
 import InviteModal from '../components/Invite/InviteModal'
 import { canvasToStage } from '../components/Canvas/InfiniteCanvas'
 import { stageToCanvas } from '../utils/coordinates'
+import { getConnectedLineIds, getLineAnchorStatus } from '../utils/connectedLines'
+import { getParentId, resolveWorldPos, type FramesByIdMap } from '../utils/frames'
+import type { LineObject } from '../types'
 import type { BoardObject } from '../types'
 import type { ObjectUpdates } from '../services/objects'
 import { useBoardData } from '../hooks/useBoardData'
 import { useBoardTools } from '../hooks/useBoardTools'
 import { useBoardEvents } from '../hooks/useBoardEvents'
 import aiIcon from '../assets/ai-icon.png'
+import convertToTextIcon from '../assets/convert-to-text-icon.png'
 import './BoardPage.css'
 
 /**
@@ -57,6 +64,8 @@ export default function BoardPage() {
     loading,
     accessDenied,
     canEdit,
+    canUndo,
+    canRedo,
     pendingInvite,
     viewport,
     setViewport: _setViewport,
@@ -71,11 +80,125 @@ export default function BoardPage() {
 
   const tools = useBoardTools(canEdit)
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [multiDragPositions, setMultiDragPositions] = useState<Record<string, { x: number; y: number }> | null>(null)
+  const [multiDragLineEndpoints, setMultiDragLineEndpoints] = useState<Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> | null>(null)
+  const multiDragStartPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null)
+  const multiDragStartPointerRef = useRef<{ x: number; y: number } | null>(null)
+  const clearMultiDragPositions = useCallback(() => {
+    setMultiDragPositions(null)
+    setMultiDragLineEndpoints(null)
+    multiDragStartPositionsRef.current = null
+    multiDragStartPointerRef.current = null
+  }, [])
+  const throttledSetMultiDragPositions = useMemo(
+    () => throttle((p: Record<string, { x: number; y: number }>) => setMultiDragPositions(p), 16),
+    []
+  )
+
+  const handleMultiDragMove = useCallback(
+    (positions: Record<string, { x: number; y: number }>) => {
+      const start = multiDragStartPositionsRef.current
+      if (!start) return
+      const movingObjectIds = new Set(
+        Object.keys(positions).filter((id) => objects[id]?.type !== 'line')
+      )
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(objects)) {
+        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+      }
+      const nextPositions: Record<string, { x: number; y: number }> = {}
+      const lineEndpoints: Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> = {}
+      for (const [id, pos] of Object.entries(positions)) {
+        const obj = objects[id]
+        if (!obj) continue
+        if (obj.type === 'line') {
+          const line = obj as LineObject
+          const status = getLineAnchorStatus(line, id, objects, movingObjectIds, framesById)
+          if (status.startConnected && status.endConnected) {
+            const startPos = start[id]
+            if (startPos) {
+              const dx = pos.x - startPos.x
+              const dy = pos.y - startPos.y
+              lineEndpoints[id] = {
+                start: { x: line.start.x + dx, y: line.start.y + dy },
+                end: { x: line.end.x + dx, y: line.end.y + dy },
+              }
+            }
+            nextPositions[id] = pos
+          } else if (status.startConnected) {
+            const startPos = start[id]
+            if (startPos) {
+              const dx = pos.x - startPos.x
+              const dy = pos.y - startPos.y
+              lineEndpoints[id] = { start: { x: line.start.x + dx, y: line.start.y + dy } }
+            }
+          } else if (status.endConnected) {
+            const startPos = start[id]
+            if (startPos) {
+              const dx = pos.x - startPos.x
+              const dy = pos.y - startPos.y
+              lineEndpoints[id] = { end: { x: line.end.x + dx, y: line.end.y + dy } }
+            }
+          }
+        } else {
+          nextPositions[id] = pos
+        }
+      }
+      throttledSetMultiDragPositions(nextPositions)
+      setMultiDragLineEndpoints(Object.keys(lineEndpoints).length > 0 ? lineEndpoints : null)
+    },
+    [objects, throttledSetMultiDragPositions]
+  )
+
+  const handleMultiDragStart = useCallback((positions: Record<string, { x: number; y: number }>) => {
+    setMultiDragPositions(positions)
+    setMultiDragLineEndpoints(null)
+  }, [])
+
+  /** Include frame children and lines whose start/end anchors connect to selected objects */
+  const expandedSelectedIds = useMemo(() => {
+    const sel = tools.selectedIds
+    if (sel.size < 1) return sel
+    const framesById: FramesByIdMap = {}
+    for (const o of Object.values(objects)) {
+      if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+    }
+    /** Add all children of any selected frame so they move with the frame */
+    const frameChildIds = new Set<string>()
+    for (const o of Object.values(objects)) {
+      const parentId = getParentId(o)
+      if (parentId && sel.has(parentId)) frameChildIds.add(o.objectId)
+    }
+    /** Exclude frames from line anchor check — only lines whose endpoints touch frame children move (Fix 2) */
+    const anchorIdsForLines = new Set<string>()
+    for (const oid of [...sel, ...frameChildIds]) {
+      const o = objects[oid]
+      if (o?.type !== 'frame') anchorIdsForLines.add(oid)
+    }
+    const connectedLineIds = getConnectedLineIds(objects, anchorIdsForLines, framesById)
+    const expanded = new Set([...sel, ...frameChildIds, ...connectedLineIds])
+    if (expanded.size === sel.size) return sel
+    return expanded
+  }, [tools.selectedIds, objects])
+
   const events = useBoardEvents({
     data,
     tools,
     user,
+    clearMultiDragPositions,
+    expandedSelectedIds,
+    showToast: (msg) => setToastMessage(msg),
   })
+
+  const selectionIsPenOnly =
+    tools.selectedIds.size > 0 &&
+    Array.from(tools.selectedIds).every((oid) => objects[oid]?.type === 'pen')
+
+  /** Convert to text only when pointer tool is active (never during pen/highlighter/eraser) */
+  const DRAWING_TOOLS = ['pen', 'highlighter', 'eraser'] as const
+  const showConvertToText =
+    selectionIsPenOnly && !DRAWING_TOOLS.includes(tools.activeTool as (typeof DRAWING_TOOLS)[number])
 
   const cursorLayerEl = useMemo(
     () => <CursorLayer boardId={id} viewport={viewport} currentUserId={user?.uid ?? ''} />,
@@ -182,15 +305,23 @@ export default function BoardPage() {
             canvasWidth={dimensions.width}
             canvasHeight={dimensions.height}
             arrowPreview={tools.arrowPreview}
-            selectedIds={tools.selectedIds}
+            selectedIds={expandedSelectedIds}
             isPointerTool={tools.activeTool === 'pointer'}
             onObjectDragEnd={events.handleObjectDragEnd}
+            onObjectDragStart={events.handleObjectDragStart}
             onObjectClick={events.handleObjectClick}
             onObjectResizeEnd={events.handleObjectResizeEnd}
             onStickyDoubleClick={events.handleStickyDoubleClick}
             onTextDoubleClick={events.handleTextDoubleClick}
             canEdit={canEdit}
             currentPenStroke={tools.currentPenStroke}
+            multiDragPositions={multiDragPositions}
+            multiDragLineEndpoints={multiDragLineEndpoints}
+            multiDragStartPositionsRef={multiDragStartPositionsRef}
+            multiDragStartPointerRef={multiDragStartPointerRef}
+            onMultiDragStart={handleMultiDragStart}
+            onMultiDragMove={handleMultiDragMove}
+            convertJustFinishedId={events.convertJustFinishedId}
           />
           <CommentLayer
             comments={comments}
@@ -208,6 +339,8 @@ export default function BoardPage() {
           onEmojiSelect={tools.handleEmojiSelect}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
           canEdit={canEdit}
           onPenDropdownOpen={() => tools.setPenStylesOpen(true)}
           onTemplatesClick={
@@ -218,6 +351,8 @@ export default function BoardPage() {
                 }
               : undefined
           }
+          onLinkClick={canEdit ? () => tools.setLinkModalOpen(true) : undefined}
+          hasSelection={tools.selectedIds.size > 0}
         />
 
         {(tools.activeTool === 'pen' || tools.activeTool === 'highlighter' || tools.activeTool === 'eraser') &&
@@ -237,14 +372,24 @@ export default function BoardPage() {
           onZoomOut={events.handleZoomOut}
         />
 
-        {isSticky && tools.editingStickyId && editingSticky && (
-          <StickyTextEditor
-            sticky={editingSticky}
-            viewport={viewport}
-            onSave={(content) => events.handleStickySave(tools.editingStickyId!, content)}
-            onCancel={() => tools.setEditingStickyId(null)}
-          />
-        )}
+        {isSticky && tools.editingStickyId && editingSticky && (() => {
+          const framesById: FramesByIdMap = {}
+          for (const o of Object.values(objects)) {
+            if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+          }
+          const worldPos = getParentId(editingSticky)
+            ? resolveWorldPos(editingSticky, framesById)
+            : undefined
+          return (
+            <StickyTextEditor
+              sticky={editingSticky}
+              viewport={viewport}
+              onSave={(content) => events.handleStickySave(tools.editingStickyId!, content)}
+              onCancel={() => tools.setEditingStickyId(null)}
+              worldPosition={worldPos ?? undefined}
+            />
+          )
+        })()}
 
         {tools.editingText && (
           <>
@@ -256,8 +401,10 @@ export default function BoardPage() {
             />
             <TextOverlayTextarea
               editingText={tools.editingText}
+              viewportScale={viewport.scale}
               onCommit={events.handleTextCommit}
               onCancel={events.handleTextCancel}
+              onBeforeClose={() => { tools.justClosedTextEditorRef.current = true }}
               onValueChange={(v) => { tools.textareaValueRef.current = v }}
             />
           </>
@@ -281,14 +428,110 @@ export default function BoardPage() {
           onClose={() => tools.setCommentThread(null)}
         />
 
-        {tools.selectedIds.size >= 1 && canEdit && (() => {
+        <LinkModal
+          isOpen={tools.linkModalOpen}
+          onClose={() => tools.setLinkModalOpen(false)}
+          onApplyLink={events.handleAddLink}
+          boardId={id}
+        />
+
+        {tools.selectedIds.size >= 1 && canEdit && showConvertToText && (() => {
+          const selectedIds = Array.from(tools.selectedIds)
+          const objs = selectedIds.map((id) => objects[id]).filter(Boolean) as BoardObject[]
+          if (objs.length === 0) return null
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          objs.forEach((o) => {
+            if (o.type === 'pen' && 'points' in o) {
+              ;(o as { points: [number, number][] }).points.forEach((p) => {
+                minX = Math.min(minX, p[0])
+                minY = Math.min(minY, p[1])
+                maxX = Math.max(maxX, p[0])
+                maxY = Math.max(maxY, p[1])
+              })
+            }
+          })
+          const centerX = minX === Infinity ? 0 : (minX + maxX) / 2
+          const topY = minY === Infinity ? 0 : minY
+          const { x: stageX, y: stageY } = canvasToStage(centerX, topY - 40, viewport)
+          const tl = canvasToStage(minX, minY, viewport)
+          const br = canvasToStage(maxX, maxY, viewport)
+          const overlayW = Math.max(1, br.x - tl.x)
+          const overlayH = Math.max(1, br.y - tl.y)
+          const isConverting = events.isConverting
+          const convertButtonShake = events.convertButtonShake
+          return (
+            <>
+              {isConverting && (
+                <div
+                  className="pen-convert-overlay"
+                  style={{
+                    left: tl.x,
+                    top: tl.y,
+                    width: overlayW,
+                    height: overlayH,
+                    zIndex: 999,
+                  }}
+                />
+              )}
+              <div
+                className={`pen-convert-toolbar ${convertButtonShake ? 'pen-convert-btn-shake' : ''}`}
+                style={{
+                  position: 'absolute',
+                  left: stageX,
+                  top: stageY - 50,
+                  transform: 'translateX(-50%)',
+                  zIndex: 1000,
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={isConverting}
+                  onClick={() => events.handleHandwritingRecognition()}
+                  className={isConverting ? 'pen-convert-btn-loading' : ''}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: 14,
+                    color: '#000',
+                    background: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
+                    cursor: isConverting ? 'not-allowed' : 'pointer',
+                    opacity: isConverting ? 0.7 : 1,
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  {isConverting ? (
+                    <>
+                      <span className="pen-convert-spinner" />
+                      Converting...
+                    </>
+                  ) : (
+                    <>
+                      <img src={convertToTextIcon} alt="" width={18} height={18} style={{ flexShrink: 0 }} />
+                      Convert to Text
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )
+        })()}
+
+        {tools.selectedIds.size >= 1 && canEdit && !selectionIsPenOnly && (() => {
           const selectedIds = Array.from(tools.selectedIds)
           const obj = objects[selectedIds[0]] as BoardObject | undefined
-          if (!obj || obj.type === 'pen') return null
+          if (!obj) return null
           const objs = selectedIds.map((id) => objects[id]).filter(Boolean) as BoardObject[]
           let centerX = 0
           let topY = 0
           const getCenterAndTop = (o: BoardObject): { x: number; y: number } => {
+            if (o.type === 'emoji' && 'position' in o) {
+              const fs = (o as { fontSize?: number }).fontSize ?? 32
+              return { x: o.position.x + fs / 2, y: o.position.y + fs / 2 }
+            }
             if ('position' in o && o.position) {
               const dims = 'dimensions' in o ? (o.dimensions ?? { width: 0, height: 0 }) : { width: 0, height: 0 }
               return { x: o.position.x + dims.width / 2, y: o.position.y }
@@ -337,6 +580,13 @@ export default function BoardPage() {
                   maxX = Math.max(maxX, p[0])
                   maxY = Math.max(maxY, p[1])
                 })
+              } else if (o.type === 'emoji' && 'position' in o) {
+                const pos = o.position
+                const fs = (o as { fontSize?: number }).fontSize ?? 32
+                minX = Math.min(minX, pos.x)
+                minY = Math.min(minY, pos.y)
+                maxX = Math.max(maxX, pos.x + fs)
+                maxY = Math.max(maxY, pos.y + fs)
               }
             })
             centerX = (minX + maxX) / 2
@@ -396,6 +646,8 @@ export default function BoardPage() {
               onDelete={events.handleDelete}
               onSendToFront={events.handleSendToFront}
               onBringToBack={events.handleBringToBack}
+              onConvertToText={events.handleHandwritingRecognition}
+              selectionIsPenOnly={showConvertToText}
               onResetRotation={
                 tools.selectedIds.size === 1
                   ? (() => {
@@ -428,6 +680,10 @@ export default function BoardPage() {
           onClearConversation={() => clearConversation(id)}
           canEdit={canEdit}
         />
+
+        {toastMessage && (
+          <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+        )}
 
         {!tools.isChatOpen && (
           <button

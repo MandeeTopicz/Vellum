@@ -1,8 +1,13 @@
 /**
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
-import { useEffect, useCallback, useMemo, useRef } from 'react'
-import { createObject, updateObject, deleteObject, batchUpdatePositions, createInputToBoardObject, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
+import { createObject, updateObject, deleteObject, batchDeleteObjects, batchUpdatePositions, createInputToBoardObject, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
+import {
+  penStrokesToImageBlob,
+  recognizeHandwriting,
+  getIdToken,
+} from '../services/handwritingRecognition'
 import { objToCreateInput, getObjectsBboxMin } from '../services/aiTools/shared'
 import {
   createComment,
@@ -12,14 +17,17 @@ import {
 import { updateBoard } from '../services/board'
 import { processAICommand } from '../services/aiAgent'
 import { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline } from '../services/aiTools'
-import { buildComposedTemplate, TEMPLATE_FORMAT_MAP, centerCreateInputsAt } from '../utils/templates'
+import { buildComposedTemplate, wrapComposedTemplateInFrame, TEMPLATE_FORMAT_MAP } from '../utils/templates'
+import { insertComposedTemplateWithFrame, wrapCreatedItemsInFrame } from '../services/templateInsert'
 import { canvasToStage } from '../components/Canvas/InfiniteCanvas'
 import type { ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
 import type { LineObject, PenObject, TextObject, ObjectsMap, BoardObject } from '../types'
 import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
 import { debounce } from '../utils/debounce'
-import { objectsInSelectionRect } from '../utils/objectBounds'
+import { objectsInSelectionRect, getBoardContentBounds, getObjectBounds, unionBounds } from '../utils/objectBounds'
+import { measureTextDimensions } from '../utils/textMeasurement'
+import { getLineAnchorStatus, getConnectedLineIds } from '../utils/connectedLines'
 import {
   resolveWorldPos,
   getLocalPos,
@@ -45,10 +53,16 @@ export interface UseBoardEventsParams {
   data: Data
   tools: Tools
   user: { uid: string } | null
+  /** Called when multi-drag ends so live positions are cleared */
+  clearMultiDragPositions?: () => void
+  /** Selection expanded with lines that intersect selection bounds (for moving lines with frames) */
+  expandedSelectedIds?: Set<string>
+  /** Show toast notification (e.g. for handwriting recognition errors) */
+  showToast?: (message: string) => void
 }
 
-export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
-  const { id, canEdit, objects, setObjects, viewport, dimensions, pushUndo, handleUndo, handleRedo, viewportRef, flushCursorUpdate } = data
+export function useBoardEvents({ data, tools, user, clearMultiDragPositions, expandedSelectedIds, showToast }: UseBoardEventsParams) {
+  const { id, canEdit, objects, setObjects, viewport, dimensions, pushUndo, handleUndo, handleRedo, viewportRef, flushCursorUpdate, containerRef } = data
   const {
     activeTool,
     setActiveTool,
@@ -72,6 +86,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
+    justFinishedObjectDragRef,
     textareaValueRef,
     copiedObjects,
     setCopiedObjects,
@@ -79,9 +94,12 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     setPenStylesOpen,
   } = tools
 
-  const containerRef = data.containerRef
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
+
+  const [isConverting, setIsConverting] = useState(false)
+  const [convertButtonShake, setConvertButtonShake] = useState(false)
+  const [convertJustFinishedId, setConvertJustFinishedId] = useState<string | null>(null)
 
   /** Switch to pointer only if current tool is not pen/highlighter/eraser */
   const maybeSwitchToPointer = useCallback(() => {
@@ -89,7 +107,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       setActiveTool('pointer')
     }
   }, [activeTool, setActiveTool])
-  const handleTextCommitRef = useRef<(value: string) => Promise<void>>(async () => {})
+  const handleTextCommitRef = useRef<(value: string, dimensions?: { width: number; height: number }) => Promise<void>>(async () => {})
 
   const dragUpdateQueueRef = useRef<Map<string, PositionUpdate>>(new Map())
   const flushDragUpdates = useMemo(
@@ -107,6 +125,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (isConverting) return
         maybeSwitchToPointer()
         setSelectedIds(new Set())
         setCommentModalPos(null)
@@ -116,63 +135,62 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedIds.size > 0 && canEdit) {
           e.preventDefault()
+          const framesById: FramesByIdMap = {}
+          for (const o of Object.values(objects)) {
+            if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+          }
+          const idsToDelete = new Set<string>()
           const frameIds = new Set<string>()
           selectedIds.forEach((oid) => {
             const o = objects[oid]
             if (o?.type === 'frame') frameIds.add(oid)
           })
-          const childUpdates: PositionUpdate[] = []
           for (const fid of frameIds) {
-            const frame = objects[fid] as { type: 'frame'; position: { x: number; y: number } } | undefined
-            if (!frame) continue
-            for (const [oid, o] of Object.entries(objects)) {
-              if (oid === fid || o.type === 'frame') continue
-              const pid = getParentId(o)
-              if (pid === fid) {
-                const pos = getLocalPos(o)
-                if (pos) {
-                  const childWorldX = frame.position.x + pos.x
-                  const childWorldY = frame.position.y + pos.y
-                  childUpdates.push({
-                    objectId: oid,
-                    x: childWorldX,
-                    y: childWorldY,
-                    parentId: null,
-                    localX: childWorldX,
-                    localY: childWorldY,
-                  })
-                }
-              }
+            const frame = objects[fid]
+            if (!frame || frame.type !== 'frame') continue
+            const childIds = Object.values(objects)
+              .filter((o) => getParentId(o) === fid)
+              .map((o) => o.objectId)
+            const movingIds = new Set([fid, ...childIds])
+            const connectedLineIds = getConnectedLineIds(objects, movingIds, framesById)
+            const children = childIds.map((cid) => objects[cid]).filter(Boolean)
+            const connectedLines = Array.from(connectedLineIds).map((lid) => objects[lid]).filter(Boolean)
+            pushUndo({
+              type: 'DELETE_FRAME_WITH_CONTENTS',
+              snapshot: {
+                frame: { ...frame } as BoardObject,
+                children: children.map((o) => ({ ...o } as BoardObject)),
+                connectedLines: connectedLines.map((o) => ({ ...o } as BoardObject)),
+              },
+            })
+            idsToDelete.add(fid)
+            childIds.forEach((cid) => idsToDelete.add(cid))
+            connectedLineIds.forEach((lid) => idsToDelete.add(lid))
+          }
+          for (const oid of selectedIds) {
+            if (idsToDelete.has(oid)) continue
+            const obj = objects[oid]
+            if (obj) {
+              pushUndo({ type: 'delete', objectId: oid, deleted: obj })
+              idsToDelete.add(oid)
             }
           }
-          if (childUpdates.length > 0) {
-            batchUpdatePositions(id, childUpdates)
+          if (idsToDelete.size > 0) {
             setObjects((prev: ObjectsMap) => {
-              let next: ObjectsMap = prev
-              for (const u of childUpdates) {
-                const o = next[u.objectId]
-                if (o && isNestableType(o.type)) {
-                  next = {
-                    ...next,
-                    [u.objectId]: {
-                      ...o,
-                      parentId: null,
-                      localX: u.localX!,
-                      localY: u.localY!,
-                      position: { x: u.localX!, y: u.localY! },
-                    } as BoardObject,
-                  }
-                }
-              }
+              const next = { ...prev }
+              idsToDelete.forEach((oid) => delete next[oid])
               return next
             })
+            setSelectedIds(new Set())
+            ;(async () => {
+              const ids = Array.from(idsToDelete)
+              if (ids.length === 1) {
+                await deleteObject(id, ids[0])
+              } else {
+                await batchDeleteObjects(id, ids)
+              }
+            })()
           }
-          selectedIds.forEach((oid: string) => {
-            const obj = objects[oid]
-            if (obj) pushUndo({ type: 'delete', objectId: oid, deleted: obj })
-            deleteObject(id, oid)
-          })
-          setSelectedIds(new Set())
         }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
@@ -183,7 +201,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, maybeSwitchToPointer, setSelectedIds, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
+  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, maybeSwitchToPointer, setSelectedIds, setObjects, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
 
   const getViewportCenter = useCallback(() => {
     const w = dimensions.width
@@ -225,11 +243,16 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     return () => document.removeEventListener('mousemove', handler)
   }, [id, editingText, flushCursorUpdate])
 
+  const handleObjectDragStart = useCallback(() => {
+    justFinishedObjectDragRef.current = true
+  }, [])
+
   const handleObjectDragEnd = useCallback(
     async (objectId: string, x: number, y: number) => {
       if (!id || !canEdit) return
+      justFinishedObjectDragRef.current = true
       const currentObjects = objects
-      const currentSelected = selectedIdsRef.current
+      const currentSelected = expandedSelectedIds ?? selectedIdsRef.current
       const obj = currentObjects[objectId]
       if (!obj) return
 
@@ -267,15 +290,34 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       const positionUpdates: Record<string, PositionUpdate> = {}
       type LineUpdate = { oid: string; to: { start: { x: number; y: number }; end: { x: number; y: number } }; from: { start: { x: number; y: number }; end: { x: number; y: number } } }
       const lineUpdates: LineUpdate[] = []
+      const batchUndoItems: Array<{ objectId: string; from: Record<string, unknown>; to: Record<string, unknown> }> = []
+
+      const movingObjectIds = new Set(idsToMove.filter((id) => currentObjects[id]?.type !== 'line'))
 
       for (const oid of idsToMove) {
         const o = currentObjects[oid]
         if (!o) continue
         if (o.type === 'line') {
           const line = o as LineObject
-          const to = {
-            start: { x: line.start.x + dx, y: line.start.y + dy },
-            end: { x: line.end.x + dx, y: line.end.y + dy },
+          const status = getLineAnchorStatus(line, oid, currentObjects, movingObjectIds, framesById)
+          let to: { start: { x: number; y: number }; end: { x: number; y: number } }
+          if (status.startConnected && status.endConnected) {
+            to = {
+              start: { x: line.start.x + dx, y: line.start.y + dy },
+              end: { x: line.end.x + dx, y: line.end.y + dy },
+            }
+          } else if (status.startConnected) {
+            to = {
+              start: { x: line.start.x + dx, y: line.start.y + dy },
+              end: { ...line.end },
+            }
+          } else if (status.endConnected) {
+            to = {
+              start: { ...line.start },
+              end: { x: line.end.x + dx, y: line.end.y + dy },
+            }
+          } else {
+            continue
           }
           lineUpdates.push({ oid, to, from: { start: line.start, end: line.end } })
         } else if (o.type === 'frame') {
@@ -283,14 +325,17 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           const newX = oid === objectId ? x : pos.x + dx
           const newY = oid === objectId ? y : pos.y + dy
           positionUpdates[oid] = { objectId: oid, x: newX, y: newY }
-          pushUndo({
-            type: 'update',
+          batchUndoItems.push({
             objectId: oid,
             from: { position: pos },
             to: { position: { x: newX, y: newY } },
           })
           dragUpdateQueueRef.current.set(oid, { objectId: oid, x: newX, y: newY })
         } else if (isNestableType(o.type) && 'position' in o) {
+          const parentId = getParentId(o)
+          if (parentId && idsToMove.includes(parentId)) {
+            continue
+          }
           const worldStart = resolveWorldPos(o, framesById)
           if (!worldStart) continue
           const worldX = oid === objectId ? x : worldStart.x + dx
@@ -339,8 +384,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
             localX: newLocalX,
             localY: newLocalY,
           }
-          pushUndo({
-            type: 'update',
+          batchUndoItems.push({
             objectId: oid,
             from: prevPos
               ? { position: { x: prevPos.x, y: prevPos.y }, parentId: prevParent ?? null, localX: prevPos.x, localY: prevPos.y }
@@ -352,8 +396,17 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       }
 
       for (const { oid, to, from } of lineUpdates) {
-        pushUndo({ type: 'update', objectId: oid, from, to })
+        batchUndoItems.push({ objectId: oid, from, to })
         await updateObject(id, oid, to)
+      }
+
+      if (batchUndoItems.length > 0) {
+        if (batchUndoItems.length === 1) {
+          const u = batchUndoItems[0]
+          pushUndo({ type: 'update', objectId: u.objectId, from: u.from, to: u.to })
+        } else {
+          pushUndo({ type: 'batchUpdate', updates: batchUndoItems })
+        }
       }
 
       if (Object.keys(positionUpdates).length > 0) {
@@ -380,9 +433,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           return next
         })
       }
+      clearMultiDragPositions?.()
       flushDragUpdates()
     },
-    [id, canEdit, objects, pushUndo, setObjects]
+    [id, canEdit, objects, pushUndo, setObjects, clearMultiDragPositions, expandedSelectedIds]
   )
 
   const handleSelectionBoxEnd = useCallback(
@@ -391,11 +445,12 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       for (const o of Object.values(objects)) {
         if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
       }
-      const ids = objectsInSelectionRect(objects, rect, framesById)
-      setSelectedIds(new Set(ids))
-      maybeSwitchToPointer()
+      const allIds = objectsInSelectionRect(objects, rect, framesById)
+      const penOnlyIds = allIds.filter((oid) => objects[oid]?.type === 'pen')
+      setSelectedIds(new Set(penOnlyIds))
+      setActiveTool('pointer')
     },
-    [objects, setSelectedIds, maybeSwitchToPointer]
+    [objects, setSelectedIds, setActiveTool]
   )
 
   const handleObjectClick = useCallback(
@@ -494,7 +549,8 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   const handleBackgroundClick = useCallback(
     async (payload: { x: number; y: number; clientX?: number; clientY?: number }) => {
-      if (activeTool === 'pointer' && (justClosedStickyEditorRef.current || justClosedTextEditorRef.current)) {
+      if (isConverting) return
+      if (justClosedStickyEditorRef.current || justClosedTextEditorRef.current) {
         justClosedStickyEditorRef.current = false
         justClosedTextEditorRef.current = false
         maybeSwitchToPointer()
@@ -520,6 +576,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         justFinishedArrowDragRef.current = false
         return
       }
+      if (justFinishedObjectDragRef.current) {
+        justFinishedObjectDragRef.current = false
+        return
+      }
 
       if (activeTool === 'comment' && canEdit) {
         setCommentModalPos({ x: canvasX, y: canvasY })
@@ -537,6 +597,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
             value: '',
             isNew: true,
             textStyle: { ...DEFAULT_TEXT_STYLE },
+            dimensions: { width: 200, height: 40 },
           })
         }
       } else if (
@@ -636,7 +697,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         maybeSwitchToPointer()
       }
     },
-    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects, setObjects, maybeSwitchToPointer]
+    [id, activeTool, canEdit, pendingEmoji, pushUndo, editingStickyId, editingText, objects, setObjects, maybeSwitchToPointer, isConverting]
   )
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
@@ -651,7 +712,14 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
       if (!obj || obj.type !== 'text') return
       const textObj = obj as TextObject
       const content = textObj.content ?? ''
-      const stage = canvasToStage(obj.position.x, obj.position.y, viewport)
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(objects)) {
+        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+      }
+      const worldPos = getParentId(obj)
+        ? (resolveWorldPos(obj, framesById) ?? { x: obj.position.x, y: obj.position.y })
+        : obj.position
+      const stage = canvasToStage(worldPos.x, worldPos.y, viewport)
       const rect = containerRef.current?.getBoundingClientRect()
       const screenX = rect ? rect.left + stage.x : stage.x
       const screenY = rect ? rect.top + stage.y : stage.y
@@ -660,11 +728,12 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         id: objectId,
         screenX,
         screenY,
-        canvasX: obj.position.x,
-        canvasY: obj.position.y,
+        canvasX: worldPos.x,
+        canvasY: worldPos.y,
         value: content,
         isNew: false,
         textStyle: { ...DEFAULT_TEXT_STYLE, ...textObj.textStyle },
+        dimensions: textObj.dimensions,
       })
     },
     [canEdit, objects, viewport]
@@ -684,9 +753,14 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
   )
 
   const handleTextCommit = useCallback(
-    async (value: string) => {
+    async (value: string, dimensions?: { width: number; height: number }) => {
       if (!id || !canEdit || !editingText) return
       const trimmed = value.trim()
+      const raw = dimensions ?? editingText.dimensions
+      const dims = {
+        width: Math.max(100, raw.width),
+        height: Math.max(40, raw.height),
+      }
       if (editingText.isNew) {
         if (trimmed === '') {
           setEditingText(null)
@@ -697,7 +771,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         const input = {
           type: 'text' as const,
           position: { x: editingText.canvasX, y: editingText.canvasY },
-          dimensions: { width: 200, height: 40 },
+          dimensions: dims,
           content: trimmed,
           textStyle: editingText.textStyle,
         }
@@ -708,8 +782,13 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         const objectId = editingText.id!
         const obj = objects[objectId]
         const oldContent = obj && obj.type === 'text' ? obj.content : ''
-        pushUndo({ type: 'update', objectId, from: { content: oldContent }, to: { content: trimmed } })
-        await updateObject(id, objectId, { content: trimmed })
+        pushUndo({
+          type: 'update',
+          objectId,
+          from: { content: oldContent },
+          to: { content: trimmed, dimensions: dims },
+        })
+        await updateObject(id, objectId, { content: trimmed, dimensions: dims })
       }
       justClosedTextEditorRef.current = true
       setEditingText(null)
@@ -793,12 +872,12 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   const handlePenStrokeStart = useCallback(
     (pos: { x: number; y: number }) => {
-      if (!penDrawingActive) return
+      if (isConverting || !penDrawingActive) return
       const pts: [number, number][] = [[pos.x, pos.y]]
       currentPenPointsRef.current = pts
       setCurrentPenPoints(pts)
     },
-    [penDrawingActive]
+    [penDrawingActive, isConverting]
   )
 
   const handlePenStrokeMove = useCallback(
@@ -913,6 +992,38 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     [id, canEdit]
   )
 
+  const handleAddLink = useCallback(
+    async (url: string) => {
+      if (!id || !canEdit) return
+      if (selectedIds.size > 0) {
+        const ids = Array.from(selectedIds)
+        for (const oid of ids) {
+          const obj = objects[oid]
+          if (!obj || obj.type === 'pen' || obj.type === 'line') continue
+          const currentLink = (obj as { linkUrl?: string | null }).linkUrl ?? null
+          pushUndo({ type: 'update', objectId: oid, from: { linkUrl: currentLink }, to: { linkUrl: url } })
+          await updateObject(id, oid, { linkUrl: url })
+        }
+        return
+      }
+      /** No selection: create a sticky at viewport center with the link (e.g. uploaded file) */
+      const center = getViewportCenter()
+      const stickyInput: CreateObjectInput = {
+        type: 'sticky',
+        position: { x: center.x - 100, y: center.y - 80 },
+        dimensions: { width: 200, height: 160 },
+        content: 'Uploaded file',
+        fillColor: '#fef08a',
+      }
+      const newId = await createObject(id, stickyInput)
+      await updateObject(id, newId, { linkUrl: url })
+      pushUndo({ type: 'create', objectId: newId, createInput: stickyInput })
+      setSelectedIds(new Set([newId]))
+      maybeSwitchToPointer()
+    },
+    [id, canEdit, selectedIds, objects, pushUndo, getViewportCenter, setSelectedIds, maybeSwitchToPointer]
+  )
+
   const handleCopy = useCallback(() => {
     if (!canEdit || selectedIds.size === 0) return
     const objs = Array.from(selectedIds)
@@ -989,13 +1100,61 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   const handleDelete = useCallback(() => {
     if (!id || !canEdit || selectedIds.size === 0) return
-    selectedIds.forEach((oid: string) => {
-      const obj = objects[oid]
-      if (obj) pushUndo({ type: 'delete', objectId: oid, deleted: obj })
-      deleteObject(id, oid)
+    const framesById: FramesByIdMap = {}
+    for (const o of Object.values(objects)) {
+      if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+    }
+    const idsToDelete = new Set<string>()
+    const frameIds = new Set<string>()
+    selectedIds.forEach((oid) => {
+      const o = objects[oid]
+      if (o?.type === 'frame') frameIds.add(oid)
     })
-    setSelectedIds(new Set())
-  }, [id, canEdit, selectedIds, objects, pushUndo, setSelectedIds])
+    for (const fid of frameIds) {
+      const frame = objects[fid]
+      if (!frame || frame.type !== 'frame') continue
+      const childIds = Object.values(objects)
+        .filter((o) => getParentId(o) === fid)
+        .map((o) => o.objectId)
+      const movingIds = new Set([fid, ...childIds])
+      const connectedLineIds = getConnectedLineIds(objects, movingIds, framesById)
+      const children = childIds.map((cid) => objects[cid]).filter(Boolean)
+      const connectedLines = Array.from(connectedLineIds).map((lid) => objects[lid]).filter(Boolean)
+      pushUndo({
+        type: 'DELETE_FRAME_WITH_CONTENTS',
+        snapshot: {
+          frame: { ...frame } as BoardObject,
+          children: children.map((o) => ({ ...o } as BoardObject)),
+          connectedLines: connectedLines.map((o) => ({ ...o } as BoardObject)),
+        },
+      })
+      idsToDelete.add(fid)
+      childIds.forEach((cid) => idsToDelete.add(cid))
+      connectedLineIds.forEach((lid) => idsToDelete.add(lid))
+    }
+    for (const oid of selectedIds) {
+      if (idsToDelete.has(oid)) continue
+      const obj = objects[oid]
+      if (obj) {
+        pushUndo({ type: 'delete', objectId: oid, deleted: obj })
+        idsToDelete.add(oid)
+      }
+    }
+    if (idsToDelete.size > 0) {
+      setObjects((prev: ObjectsMap) => {
+        const next = { ...prev }
+        idsToDelete.forEach((oid) => delete next[oid])
+        return next
+      })
+      setSelectedIds(new Set())
+      const ids = Array.from(idsToDelete)
+      if (ids.length === 1) {
+        deleteObject(id, ids[0])
+      } else {
+        batchDeleteObjects(id, ids)
+      }
+    }
+  }, [id, canEdit, selectedIds, objects, pushUndo, setSelectedIds, setObjects])
 
   const handleSendToFront = useCallback(async () => {
     if (!id || !canEdit || selectedIds.size === 0) return
@@ -1017,26 +1176,137 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     }
   }, [id, canEdit, selectedIds, objects])
 
-  /** Places elements at viewport center; optionally selects them. */
-  const insertElementsAtCenter = useCallback(
-    async (elements: CreateObjectInput[], opts?: { selectAndGroup?: boolean }): Promise<string[]> => {
-      if (!id || !canEdit || elements.length === 0) return []
-      const center = getViewportCenter()
-      const centered = centerCreateInputsAt(elements, center.x, center.y)
-      const newIds: string[] = []
-      for (const input of centered) {
-        const objectId = await createObject(id, input)
-        pushUndo({ type: 'create', objectId, createInput: input })
-        newIds.push(objectId)
+  /**
+   * Converts selected pen strokes to text via handwriting recognition API.
+   * Creates a text object at the strokes' position, deletes the strokes.
+   */
+  const handleHandwritingRecognition = useCallback(async () => {
+    if (isConverting || !id || !canEdit || selectedIds.size === 0) return
+    const penObjs = Array.from(selectedIds)
+      .map((oid) => objects[oid])
+      .filter((o): o is PenObject => o != null && o.type === 'pen')
+    if (penObjs.length === 0) {
+      showToast?.('Please select pen strokes to convert')
+      return
+    }
+    const token = await getIdToken()
+    if (!token) {
+      showToast?.('You must be signed in to use handwriting recognition')
+      return
+    }
+    setIsConverting(true)
+    try {
+      const blob = await penStrokesToImageBlob(penObjs)
+      const { text } = await recognizeHandwriting(blob, token)
+      if (!text.trim()) {
+        showToast?.('No text was recognized in the selection')
+        return
       }
-      if (opts?.selectAndGroup && newIds.length > 0) {
-        setSelectedIds(new Set(newIds))
-        maybeSwitchToPointer()
+      const boundsList = penObjs.map((obj) => getObjectBounds(obj))
+      const union = unionBounds(boundsList)
+      if (!union) {
+        showToast?.('Could not determine position')
+        return
       }
-      return newIds
-    },
-    [id, canEdit, getViewportCenter, pushUndo, setSelectedIds, maybeSwitchToPointer]
-  )
+      const penW = union.right - union.left
+      const penH = union.bottom - union.top
+
+      const strokeColorCounts = penObjs.reduce((acc, s) => {
+        const c =
+          (s as { color?: string }).color ||
+          (s as { stroke?: string }).stroke ||
+          (s as { strokeColor?: string }).strokeColor ||
+          (s as { fill?: string }).fill ||
+          '#000000'
+        acc[c] = (acc[c] ?? 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+      const fontColor =
+        Object.entries(strokeColorCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#000000'
+
+      const firstStroke = penObjs[0]
+      const strokeWidth =
+        firstStroke?.strokeWidth ??
+        (firstStroke as { lineWidth?: number })?.lineWidth ??
+        (firstStroke as { size?: number })?.size ??
+        2
+      const fontSizeFromStroke = Math.max(12, Math.min(72, strokeWidth * 8))
+      const lineCount = Math.max(1, Math.round(penH / 40))
+      const fontSizeFromBounds = Math.round(penH / lineCount)
+      const fontSize = Math.min(72, Math.max(12, Math.max(fontSizeFromStroke, fontSizeFromBounds)))
+
+      const textStyle = { ...DEFAULT_TEXT_STYLE, fontColor, fontSize }
+      const { width: textW, height: textH } = measureTextDimensions(
+        text.trim(),
+        fontSize,
+        textStyle.fontFamily,
+        800
+      )
+      const textX = union.left + penW / 2 - textW / 2
+      const textY = union.top + penH / 2 - textH / 2
+      const textInput: CreateObjectInput = {
+        type: 'text',
+        position: { x: textX, y: textY },
+        dimensions: { width: textW, height: textH },
+        content: text.trim(),
+        textStyle,
+      }
+      const newId = await createObject(id, textInput)
+      for (const p of penObjs) {
+        pushUndo({ type: 'delete', objectId: p.objectId, deleted: p })
+      }
+      pushUndo({ type: 'create', objectId: newId, createInput: textInput })
+      const penIds = penObjs.map((p) => p.objectId)
+      if (penIds.length === 1) {
+        deleteObject(id, penIds[0])
+      } else {
+        batchDeleteObjects(id, penIds)
+      }
+      setObjects((prev: ObjectsMap) => {
+        const next = { ...prev }
+        penIds.forEach((oid) => delete next[oid])
+        return next
+      })
+      setSelectedIds(new Set([newId]))
+      const stage = canvasToStage(textX, textY, viewport)
+      const rect = containerRef.current?.getBoundingClientRect()
+      const screenX = rect ? rect.left + stage.x : stage.x
+      const screenY = rect ? rect.top + stage.y : stage.y
+      setEditingText({
+        id: newId,
+        screenX,
+        screenY,
+        canvasX: textX,
+        canvasY: textY,
+        value: text.trim(),
+        isNew: false,
+        textStyle,
+        dimensions: { width: textW, height: textH },
+      })
+      setConvertJustFinishedId(newId)
+      setTimeout(() => setConvertJustFinishedId(null), 200)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast?.(msg)
+      setConvertButtonShake(true)
+      setTimeout(() => setConvertButtonShake(false), 400)
+    } finally {
+      setIsConverting(false)
+    }
+  }, [
+    id,
+    canEdit,
+    selectedIds,
+    objects,
+    pushUndo,
+    setSelectedIds,
+    setObjects,
+    setEditingText,
+    showToast,
+    viewport,
+    containerRef,
+    isConverting,
+  ])
 
   /** Inserts a structural format template (Doc/Kanban/Table/Timeline/Flow Chart/Slides) at viewport center. */
   const insertFormatsStructure = useCallback(
@@ -1147,10 +1417,13 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
           }
         }
 
-        for (const { objectId, createInput } of createdItems) {
+        const wrapped = createdItems.length >= 2
+          ? await wrapCreatedItemsInFrame(id, createdItems)
+          : createdItems
+        for (const { objectId, createInput } of wrapped) {
           pushUndo({ type: 'create', objectId, createInput })
         }
-        const ids = createdItems.map((item) => item.objectId)
+        const ids = wrapped.map((item) => item.objectId)
         if (ids.length > 0) {
           setSelectedIds(new Set(ids))
           maybeSwitchToPointer()
@@ -1164,14 +1437,57 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     [id, canEdit, objects, getViewportCenter, pushUndo, setSelectedIds, maybeSwitchToPointer]
   )
 
-  /** Inserts template by key: composed first, else format-structure fallback. */
+  /** Inserts template by key: composed first (wrapped in frame), else format-structure fallback. */
   const insertTemplateByKey = useCallback(
     async (key: string): Promise<void> => {
       if (!id || !canEdit) return
 
       const composed = buildComposedTemplate(key)
       if (composed.length > 0) {
-        await insertElementsAtCenter(composed, { selectAndGroup: true })
+        const framesById: FramesByIdMap = {}
+        for (const o of Object.values(objects)) {
+          if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+        }
+        const existingBounds = getBoardContentBounds(objects, framesById)
+        const SPAWN_GAP = 100
+        const viewportCenter = getViewportCenter()
+        let spawnCenterX: number
+        let spawnCenterY: number
+        if (!existingBounds) {
+          spawnCenterX = viewportCenter.x
+          spawnCenterY = viewportCenter.y
+        } else {
+          const framePadding = key === 'swot' ? 48 : 24
+          const { frameInput } = wrapComposedTemplateInFrame(composed, undefined, framePadding)
+          const fw = 'dimensions' in frameInput ? frameInput.dimensions.width : 400
+          const fh = 'dimensions' in frameInput ? frameInput.dimensions.height : 300
+          spawnCenterX = existingBounds.maxX + SPAWN_GAP + fw / 2
+          spawnCenterY = existingBounds.minY + fh / 2
+        }
+        const maxDisplayOrder = Object.values(objects).reduce(
+          (m, o) => Math.max(m, o.displayOrder ?? (o.createdAt?.toMillis?.() ?? 0)),
+          0
+        )
+        const created = await insertComposedTemplateWithFrame(id, key, composed, spawnCenterX, spawnCenterY, maxDisplayOrder)
+        for (const { objectId, createInput } of created) {
+          pushUndo({ type: 'create', objectId, createInput })
+        }
+        if (created.length > 0) {
+          setSelectedIds(new Set(created.map((c) => c.objectId)))
+          maybeSwitchToPointer()
+          const frame = created[0]
+          const framePos = 'position' in frame.createInput ? frame.createInput.position : { x: spawnCenterX, y: spawnCenterY }
+          const dims = 'dimensions' in frame.createInput ? frame.createInput.dimensions : { width: 400, height: 300 }
+          const templateCenterX = framePos.x + dims.width / 2
+          const templateCenterY = framePos.y + dims.height / 2
+          const w = dimensions.width
+          const h = dimensions.height
+          data.setViewport((prev) => ({
+            ...prev,
+            x: w / 2 - templateCenterX * prev.scale,
+            y: h / 2 - templateCenterY * prev.scale,
+          }))
+        }
         return
       }
 
@@ -1182,7 +1498,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
         await insertFormatsStructure('Doc')
       }
     },
-    [id, canEdit, insertElementsAtCenter, insertFormatsStructure]
+    [id, canEdit, objects, dimensions, data, getViewportCenter, pushUndo, setSelectedIds, maybeSwitchToPointer, insertFormatsStructure]
   )
 
   useEffect(() => {
@@ -1206,6 +1522,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
 
   return {
     handleStageMouseMove,
+    handleObjectDragStart,
     handleObjectDragEnd,
     handleObjectClick,
     handleObjectResizeEnd,
@@ -1232,6 +1549,7 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     handleEraserMove,
     handleBoardNameChange,
     handleObjectStyleUpdate,
+    handleAddLink,
     handleSelectionBoxEnd,
     handleCopy,
     handlePaste,
@@ -1239,6 +1557,10 @@ export function useBoardEvents({ data, tools, user }: UseBoardEventsParams) {
     handleDelete,
     handleSendToFront,
     handleBringToBack,
+    handleHandwritingRecognition,
     insertTemplateByKey,
+    isConverting,
+    convertButtonShake,
+    convertJustFinishedId,
   }
 }
