@@ -17,7 +17,7 @@ import {
 import { updateBoard } from '../services/board'
 import { processAICommand } from '../services/aiAgent'
 import { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline } from '../services/aiTools'
-import { buildComposedTemplate, wrapComposedTemplateInFrame, TEMPLATE_FORMAT_MAP } from '../utils/templates'
+import { buildComposedTemplate, wrapComposedTemplateInFrame, TEMPLATE_FORMAT_MAP, getFormatPlacementDimensions } from '../utils/templates'
 import { insertComposedTemplateWithFrame, wrapCreatedItemsInFrame } from '../services/templateInsert'
 import { canvasToStage } from '../components/Canvas/InfiniteCanvas'
 import type { ObjectResizeUpdates } from '../components/Canvas/ObjectLayer'
@@ -25,7 +25,7 @@ import type { LineObject, PenObject, TextObject, ObjectsMap, BoardObject } from 
 import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
 import { debounce } from '../utils/debounce'
-import { objectsInSelectionRect, objectsInLassoPolygon, getBoardContentBounds, getObjectBounds, unionBounds } from '../utils/objectBounds'
+import { objectsInSelectionRect, objectsInLassoPolygon, getBoardContentBounds, getObjectBounds, unionBounds, findNonOverlappingCenter } from '../utils/objectBounds'
 import { isImageUrl, isGoogleDoc, isYouTube } from '../utils/urlDetection'
 import { uploadBoardImage, uploadBoardFile } from '../services/storage'
 import { stageToCanvas } from '../utils/coordinates'
@@ -1655,11 +1655,25 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     isConverting,
   ])
 
-  /** Inserts a structural format template (Doc/Kanban/Table/Timeline/Flow Chart/Slides) at viewport center. */
+  /** Inserts a structural format template (Doc/Kanban/Table/Timeline/Flow Chart/Slides) at a non-overlapping position. */
   const insertFormatsStructure = useCallback(
     async (kind: string): Promise<string[]> => {
       if (!id || !canEdit) return []
-      const center = getViewportCenter()
+      const viewportCenter = getViewportCenter()
+      const { width, height } = getFormatPlacementDimensions(kind)
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(objects)) {
+        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+      }
+      const center = findNonOverlappingCenter(
+        viewportCenter.x,
+        viewportCenter.y,
+        width,
+        height,
+        objects,
+        framesById,
+        80
+      )
       const createdItems: { objectId: string; createInput: CreateObjectInput }[] = []
       const actions: string[] = []
       const objectsMap = new Map(Object.entries(objects))

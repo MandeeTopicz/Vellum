@@ -85,7 +85,8 @@ let lastCursorUpdate = 0
 let pendingCursor: { x: number; y: number } | null = null
 let cursorFlushTimer: ReturnType<typeof setTimeout> | null = null
 
-const CURSOR_DEBUG = import.meta.env?.DEV === true
+/** Set VITE_DEBUG_PRESENCE=true to enable verbose presence/cursor logs */
+const CURSOR_DEBUG = import.meta.env?.VITE_DEBUG_PRESENCE === 'true'
 
 /**
  * Updates the current user's cursor position on the board (throttled for performance).

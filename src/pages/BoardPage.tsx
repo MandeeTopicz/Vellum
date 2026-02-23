@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useMemo, memo, useState, useCallback, useRef } from 'react'
+import { useMemo, memo, useState, useCallback, useRef, useEffect } from 'react'
+import type Konva from 'konva'
 import { throttle } from '../utils/throttle'
 import { useAuth } from '../context/AuthContext'
 import { getBoard } from '../services/board'
@@ -86,6 +87,14 @@ export default function BoardPage() {
   )
 
   const tools = useBoardTools(canEdit)
+  const stageRef = useRef<Konva.Stage>(null)
+
+  useEffect(() => {
+    if (tools.justFinishedPenStrokeRef.current) {
+      tools.justFinishedPenStrokeRef.current = false
+      requestAnimationFrame(() => stageRef.current?.batchDraw())
+    }
+  }, [objects, tools.justFinishedPenStrokeRef])
 
   const handleContextMenu = useCallback(
     (p: { clientX: number; clientY: number }) => {
@@ -458,6 +467,7 @@ export default function BoardPage() {
         }}
       >
         <InfiniteCanvas
+          stageRef={stageRef}
           width={dimensions.width}
           height={dimensions.height}
           viewport={stableViewport}

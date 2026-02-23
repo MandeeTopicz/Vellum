@@ -78,8 +78,9 @@ export default function InviteModal({ boardId, onClose, onBoardUpdated }: Invite
     return members
   })()
 
-  /** Whether the user has recent cursor activity */
+  /** Whether the user has recent cursor activity. Self is always active. */
   function isUserActive(userId: string): boolean {
+    if (auth.currentUser?.uid === userId) return true
     const cursor = cursors.find((c) => c.userId === userId)
     const lastUpdated = cursor?.lastUpdated
     if (!lastUpdated) return false

@@ -258,6 +258,42 @@ export const TEMPLATE_FORMAT_MAP: Record<string, string> = {
   wireframe: 'Doc',
 }
 
+/** Approximate dimensions for format templates (not composed) for collision-aware placement */
+const FORMAT_TEMPLATE_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  Kanban: { width: 1100, height: 450 },
+  'Flow Chart': { width: 450, height: 450 },
+  'Mind Map': { width: 500, height: 400 },
+  Timeline: { width: 600, height: 200 },
+  Doc: { width: 400, height: 200 },
+  Table: { width: 320, height: 220 },
+  Slides: { width: 400, height: 400 },
+}
+
+/**
+ * Returns approximate dimensions for a format kind (e.g. 'Kanban', 'Flow Chart').
+ * @param formatKind - Format kind from insertFormatsStructure
+ */
+export function getFormatPlacementDimensions(formatKind: string): { width: number; height: number } {
+  return FORMAT_TEMPLATE_DIMENSIONS[formatKind] ?? { width: 400, height: 300 }
+}
+
+/**
+ * Returns the approximate width and height of a template for collision-aware placement.
+ * @param templateKey - Template id (e.g. 'kanban-board', 'swot')
+ * @returns Dimensions in canvas units
+ */
+export function getTemplatePlacementDimensions(templateKey: string): { width: number; height: number } {
+  const composed = buildComposedTemplate(templateKey)
+  if (composed.length > 0) {
+    const framePadding = templateKey === 'swot' ? 48 : 24
+    const { frameInput } = wrapComposedTemplateInFrame(composed, undefined, framePadding)
+    const dims = 'dimensions' in frameInput ? frameInput.dimensions : { width: 400, height: 300 }
+    return dims
+  }
+  const format = TEMPLATE_FORMAT_MAP[templateKey]
+  return getFormatPlacementDimensions(format ?? 'Doc')
+}
+
 const W = DEFAULT_STICKY_SIZE.width
 const H = DEFAULT_STICKY_SIZE.height
 const GAP = 24

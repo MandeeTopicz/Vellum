@@ -115,6 +115,8 @@ interface InfiniteCanvasProps {
   onSelectionEnd?: () => void
   /** Active pen stroke rendered last in main layer so it paints above all objects (avoids cross-layer compositing) */
   activePenStrokeOverlay?: React.ReactNode
+  /** Optional ref to receive the Stage instance (e.g. for batchDraw after pen stroke or object changes) */
+  stageRef?: React.MutableRefObject<Konva.Stage | null>
 }
 
 function InfiniteCanvas({
@@ -149,8 +151,10 @@ function InfiniteCanvas({
   onSelectionStart,
   onSelectionEnd,
   activePenStrokeOverlay,
+  stageRef: stageRefProp,
 }: InfiniteCanvasProps) {
-  const stageRef = useRef<Konva.Stage>(null)
+  const stageRefInternal = useRef<Konva.Stage>(null)
+  const stageRef = stageRefProp ?? stageRefInternal
   const viewportRef = useRef(viewport)
   viewportRef.current = viewport
 
@@ -529,6 +533,9 @@ function InfiniteCanvas({
       setIsPenDrawing(false)
       const finalPos = getCanvasPos()
       onPenStrokeEnd?.(finalPos ?? undefined)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => stageRef.current?.batchDraw())
+      })
       return
     }
     if (isEraserDraggingRef.current) {
@@ -619,7 +626,9 @@ function InfiniteCanvas({
 
   const result = (
     <Stage
-      ref={stageRef}
+      ref={(node) => {
+        (stageRef as React.MutableRefObject<Konva.Stage | null>).current = node
+      }}
       width={width}
       height={height}
       pixelRatio={1}

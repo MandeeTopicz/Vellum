@@ -255,6 +255,85 @@ export function objectsInLassoPolygon(
 }
 
 /**
+ * Finds a non-overlapping center for a rectangle of given dimensions.
+ * Used when placing templates so they never appear on top of existing objects.
+ * @param desiredCenterX - Preferred X center
+ * @param desiredCenterY - Preferred Y center
+ * @param width - Width of the new object
+ * @param height - Height of the new object
+ * @param objectsMap - Existing objects on the board
+ * @param framesById - Map of frames for world-coord resolution
+ * @param gap - Minimum gap between new object and existing (default 80)
+ * @returns Center point (x, y) that does not overlap any existing object
+ */
+export function findNonOverlappingCenter(
+  desiredCenterX: number,
+  desiredCenterY: number,
+  width: number,
+  height: number,
+  objectsMap: Record<string, BoardObject>,
+  framesById: FramesByIdMap,
+  gap: number = 80
+): { x: number; y: number } {
+  const toBounds = (cx: number, cy: number): Bounds => ({
+    left: cx - width / 2,
+    top: cy - height / 2,
+    right: cx + width / 2,
+    bottom: cy + height / 2,
+  })
+
+  const overlapsAny = (bounds: Bounds): boolean => {
+    for (const obj of Object.values(objectsMap)) {
+      const objBounds = getObjectBoundsWorld(obj, framesById)
+      if (boundsIntersect(bounds, objBounds)) return true
+    }
+    return false
+  }
+
+  const proposed = toBounds(desiredCenterX, desiredCenterY)
+  if (!overlapsAny(proposed)) {
+    return { x: desiredCenterX, y: desiredCenterY }
+  }
+
+  const contentBounds = getBoardContentBounds(objectsMap, framesById)
+  if (!contentBounds) return { x: desiredCenterX, y: desiredCenterY }
+
+  /** Try placing to the right of all content first */
+  const rightX = contentBounds.maxX + gap + width / 2
+  const rightY = contentBounds.minY + height / 2
+  const rightBounds = toBounds(rightX, rightY)
+  if (!overlapsAny(rightBounds)) return { x: rightX, y: rightY }
+
+  /** Try placing below content */
+  const belowX = contentBounds.minX + width / 2
+  const belowY = contentBounds.maxY + gap + height / 2
+  const belowBounds = toBounds(belowX, belowY)
+  if (!overlapsAny(belowBounds)) return { x: belowX, y: belowY }
+
+  /** Spiral outward from desired position */
+  const step = gap + Math.max(width, height) / 2
+  for (let ring = 1; ring <= 8; ring++) {
+    const d = ring * step
+    const candidates: [number, number][] = [
+      [desiredCenterX + d, desiredCenterY],
+      [desiredCenterX + d, desiredCenterY + d],
+      [desiredCenterX, desiredCenterY + d],
+      [desiredCenterX - d, desiredCenterY + d],
+      [desiredCenterX - d, desiredCenterY],
+      [desiredCenterX - d, desiredCenterY - d],
+      [desiredCenterX, desiredCenterY - d],
+      [desiredCenterX + d, desiredCenterY - d],
+    ]
+    for (const [cx, cy] of candidates) {
+      const b = toBounds(cx, cy)
+      if (!overlapsAny(b)) return { x: cx, y: cy }
+    }
+  }
+
+  return { x: rightX, y: rightY }
+}
+
+/**
  * Get object IDs that intersect the selection rectangle.
  * @param objectsMap - Map of objectId -> BoardObject
  * @param rect - Selection rectangle in canvas coordinates
