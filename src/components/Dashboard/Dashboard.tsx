@@ -30,11 +30,11 @@ export default function Dashboard() {
   const [templateCreating, setTemplateCreating] = useState<string | null>(null)
 
   const DASHBOARD_TEMPLATES = [
-    { id: 'project-review', title: 'Project Review' },
+    { id: 'project-review', title: 'Project Review Template' },
     { id: 'kanban-board', title: 'Kanban' },
     { id: 'swot', title: 'SWOT Analysis' },
     { id: 'journeyMap', title: 'Journey Map' },
-    { id: 'retrospective', title: 'Retrospective' },
+    { id: 'retrospective', title: 'Sprint Retrospective Template' },
     { id: 'mind-map', title: 'Mind Map' },
   ] as const
 

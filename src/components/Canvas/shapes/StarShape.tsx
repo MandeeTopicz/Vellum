@@ -11,22 +11,35 @@ import {
   useShapeTransform,
   boundBoxFunc,
   MIN_SIZE,
+  areShapePropsEqual,
 } from './shared'
+import React from 'react'
 
 interface StarShapeProps extends BaseShapeProps {
   obj: StarObject
 }
 
-export function StarShape({
+function StarShapeInner({
   obj,
-  viewport,
+  viewportRef,
   canEdit,
   selected,
   isPointerTool,
+  isSelecting = false,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   displayPosition,
+  selectedIds,
+  multiDragStartPositionsRef,
+  multiDragStartPointerRef,
+  dragPreviewPosition,
+  onMultiDragStart: _onMultiDragStart,
+  onMultiDragMove: _onMultiDragMove,
+  connectorToolActive,
+  onConnectorHover,
+  isPenStrokeActive,
 }: StarShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
@@ -69,20 +82,27 @@ export function StarShape({
 
   const handlers = shapeHandlers(
     obj.objectId,
-    viewport,
+    viewportRef,
     canEdit,
     selected,
     onObjectDragEnd,
     onObjectClick,
-    isPointerTool
+    isPointerTool,
+    isSelecting,
+    {
+      ...(selectedIds && multiDragStartPositionsRef && _onMultiDragStart && _onMultiDragMove ? { selectedIds, multiDragStartPositionsRef, multiDragStartPointerRef, onMultiDragStart: _onMultiDragStart, onMultiDragMove: _onMultiDragMove } : {}),
+      ...(onObjectDragStart && { onObjectDragStart }),
+      ...(connectorToolActive && onConnectorHover && { connectorToolActive, onConnectorHover }),
+      isPenStrokeActive,
+    }
   )
 
   return (
     <>
       <Group
         ref={groupRef}
-        x={pos.x}
-        y={pos.y}
+        x={dragPreviewPosition?.x ?? pos.x}
+        y={dragPreviewPosition?.y ?? pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
@@ -94,15 +114,17 @@ export function StarShape({
           innerRadius={innerRadius}
           outerRadius={outerRadius}
           fill={obj.fillColor ?? 'transparent'}
-          stroke={selected ? '#8093F1' : (obj.strokeColor ?? '#000000')}
-          strokeWidth={selected ? 3 : (obj.strokeWidth ?? 2)}
+          stroke={selected && isPointerTool ? '#8093F1' : (obj.strokeColor ?? '#000000')}
+          strokeWidth={selected && isPointerTool ? 3 : (obj.strokeWidth ?? 2)}
           dash={dash}
           perfectDrawEnabled={false}
         />
       </Group>
-      {selected && hasResizeHandler && canEdit && (
+      {selected && isPointerTool && hasResizeHandler && canEdit && (
         <Transformer ref={trRef} rotateEnabled={false} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )
 }
+
+export const StarShape = React.memo(StarShapeInner, areShapePropsEqual)

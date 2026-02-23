@@ -12,7 +12,9 @@ import {
   useShapeTransform,
   boundBoxFunc,
   MIN_SIZE,
+  areShapePropsEqual,
 } from './shared'
+import React from 'react'
 
 const POLYGON_SIDES: Record<PolygonObject['type'], number> = {
   diamond: 4,
@@ -25,16 +27,27 @@ interface PolygonShapeProps extends BaseShapeProps {
   obj: PolygonObject
 }
 
-export function PolygonShape({
+function PolygonShapeInner({
   obj,
-  viewport,
+  viewportRef,
   canEdit,
   selected,
   isPointerTool,
+  isSelecting = false,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   displayPosition,
+  selectedIds,
+  multiDragStartPositionsRef,
+  multiDragStartPointerRef,
+  dragPreviewPosition,
+  onMultiDragStart,
+  onMultiDragMove,
+  connectorToolActive,
+  onConnectorHover,
+  isPenStrokeActive,
 }: PolygonShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
@@ -47,8 +60,8 @@ export function PolygonShape({
   const radius = Math.min(w, h) / 2
   const sides = POLYGON_SIDES[obj.type]
   const isDiamond = obj.type === 'diamond'
-  const stroke = selected ? '#8093F1' : (obj.strokeColor ?? '#000000')
-  const sw = selected ? 3 : (obj.strokeWidth ?? 2)
+  const stroke = selected && isPointerTool ? '#8093F1' : (obj.strokeColor ?? '#000000')
+  const sw = selected && isPointerTool ? 3 : (obj.strokeWidth ?? 2)
   const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
   const opacity = (obj as { opacity?: number }).opacity ?? 1
   const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
@@ -83,20 +96,27 @@ export function PolygonShape({
 
   const handlers = shapeHandlers(
     obj.objectId,
-    viewport,
+    viewportRef,
     canEdit,
     selected,
     onObjectDragEnd,
     onObjectClick,
-    isPointerTool
+    isPointerTool,
+    isSelecting,
+    {
+      ...(selectedIds && multiDragStartPositionsRef && onMultiDragStart && onMultiDragMove ? { selectedIds, multiDragStartPositionsRef, multiDragStartPointerRef, onMultiDragStart, onMultiDragMove } : {}),
+      ...(onObjectDragStart && { onObjectDragStart }),
+      ...(connectorToolActive && onConnectorHover && { connectorToolActive, onConnectorHover }),
+      isPenStrokeActive,
+    }
   )
 
   return (
     <>
       <Group
         ref={groupRef}
-        x={pos.x}
-        y={pos.y}
+        x={dragPreviewPosition?.x ?? pos.x}
+        y={dragPreviewPosition?.y ?? pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
@@ -135,9 +155,11 @@ export function PolygonShape({
           />
         )}
       </Group>
-      {selected && hasResizeHandler && canEdit && (
+      {selected && isPointerTool && hasResizeHandler && canEdit && (
         <Transformer ref={trRef} rotateEnabled={false} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )
 }
+
+export const PolygonShape = React.memo(PolygonShapeInner, areShapePropsEqual)

@@ -3,15 +3,15 @@
  */
 import { createObject } from '../objects'
 import { DEFAULT_STICKY_SIZE } from '../../types/objects'
-import { resolveColor, STICKY_COLORS } from './shared'
+import { resolveColor, STICKY_COLORS, getAdjustedPosition } from './shared'
 import type { ToolExecutionContext } from './types'
 
 /** createTemplate */
 export async function executeCreateTemplate(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, createdItems, actions } = ctx
   const templateType = (args.templateType ?? 'swot') as 'swot' | 'retrospective' | 'journeyMap'
-  const startX = typeof args.startX === 'number' ? args.startX : 500
-  const startY = typeof args.startY === 'number' ? args.startY : 500
+  let startX = typeof args.startX === 'number' ? args.startX : 500
+  let startY = typeof args.startY === 'number' ? args.startY : 500
   const w = DEFAULT_STICKY_SIZE.width
   const h = DEFAULT_STICKY_SIZE.height
   const gap = 24
@@ -36,6 +36,18 @@ export async function executeCreateTemplate(ctx: ToolExecutionContext): Promise<
     for (let i = 0; i < 5; i++) {
       templates.push({ label: `Step ${i + 1}`, x: startX + i * (w + gap), y: startY, color: 'yellow' })
     }
+  }
+
+  const layoutW = templates.length > 0 ? Math.max(...templates.map((t) => t.x + w)) - startX : w * 2 + gap
+  const layoutH = templates.length > 0 ? Math.max(...templates.map((t) => t.y + h)) - startY : h * 2 + gap
+  const adjusted = getAdjustedPosition(ctx, startX, startY, layoutW, layoutH)
+  const dx = adjusted.x - startX
+  const dy = adjusted.y - startY
+  startX = adjusted.x
+  startY = adjusted.y
+  for (const t of templates) {
+    t.x += dx
+    t.y += dy
   }
 
   for (const t of templates) {

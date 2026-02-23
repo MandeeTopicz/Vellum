@@ -1,6 +1,7 @@
 /**
  * AI tool: createOrgChart.
  */
+import { clipLineToRectEdges, rectFromPosDims } from '../../utils/lineClip'
 import { createObject } from '../objects'
 import type { ToolExecutionContext } from './types'
 
@@ -59,10 +60,18 @@ export async function executeCreateOrgChart(ctx: ToolExecutionContext): Promise<
     const childInput = { type: 'sticky' as const, position: { x: childX, y: startY + boxH + gapY }, dimensions: { width: boxW, height: boxH }, content: childName, fillColor: '#e0e7ff' }
     const childId = await createObject(boardId, childInput)
     createdItems.push({ objectId: childId, createInput: childInput })
+    const rootRect = rectFromPosDims(startX, startY, boxW, boxH)
+    const childRect = rectFromPosDims(childX, startY + boxH + gapY, boxW, boxH)
+    const { start, end } = clipLineToRectEdges(
+      { x: startX + boxW / 2, y: startY + boxH },
+      { x: childX + boxW / 2, y: startY + boxH + gapY },
+      rootRect,
+      childRect
+    )
     const lineInput = {
       type: 'line' as const,
-      start: { x: startX + boxW / 2, y: startY + boxH },
-      end: { x: childX + boxW / 2, y: startY + boxH + gapY },
+      start,
+      end,
       strokeColor: '#94a3b8',
       strokeWidth: 2,
     }

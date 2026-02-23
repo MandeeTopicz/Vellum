@@ -43,20 +43,25 @@ function CursorLayer({
   const [interpolatedCursors, setInterpolatedCursors] = useState<
     Map<string, InterpolatedCursor>
   >(new Map())
-  const [now, setNow] = useState(() => Date.now())
-  const animationFrameRef = useRef<number | null>(null)
-
-  // Subscribe to cursor updates from Firebase
+  const [hasOtherCursors, setHasOtherCursors] = useState(false)
+  const lastCursorsSerialRef = useRef('')
+  // Subscribe to cursor updates from Firebase — presence.ts filters own cursor at source
   useEffect(() => {
     if (!boardId) return () => {}
 
     const unsubscribe = subscribeToCursors(boardId, (cursors) => {
+      const serialized = JSON.stringify(cursors)
+      if (serialized === lastCursorsSerialRef.current) return
+      lastCursorsSerialRef.current = serialized
+
       const now = Date.now()
+      const otherCursors = cursors.filter((c) => c.userId !== currentUserId)
+      setHasOtherCursors(otherCursors.length > 0)
 
       setInterpolatedCursors((prev) => {
         const next = new Map(prev)
 
-        for (const cursor of cursors) {
+        for (const cursor of otherCursors) {
           const lastUpdate = cursor.lastUpdated ?? now
           if (now - lastUpdate > CURSOR_IDLE_TIMEOUT_MS) continue
 
@@ -85,7 +90,7 @@ function CursorLayer({
           }
         }
 
-        const activeIds = new Set(cursors.map((c) => c.userId))
+        const activeIds = new Set(otherCursors.map((c) => c.userId))
         for (const [userId, cursor] of next) {
           if (!activeIds.has(userId) || now - cursor.lastUpdate > CURSOR_IDLE_TIMEOUT_MS) {
             next.delete(userId)
@@ -97,18 +102,16 @@ function CursorLayer({
     })
 
     return () => unsubscribe()
-  }, [boardId])
+  }, [boardId, currentUserId])
 
-  // Idle timeout tick
+  // 60fps interpolation loop — only runs when other users' cursors are present
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 500)
-    return () => clearInterval(id)
-  }, [])
+    if (!hasOtherCursors) return
 
-  // 60fps animation loop for smooth interpolation
-  useEffect(() => {
+    let rafId: number
     const animate = () => {
       setInterpolatedCursors((prev) => {
+        if (prev.size === 0) return prev
         let hasChanges = false
         const next = new Map(prev)
 
@@ -141,24 +144,18 @@ function CursorLayer({
           }
         }
 
-        animationFrameRef.current = requestAnimationFrame(animate)
         return hasChanges ? next : prev
       })
+      rafId = requestAnimationFrame(animate)
     }
+    rafId = requestAnimationFrame(animate)
 
-    animationFrameRef.current = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(rafId)
+  }, [hasOtherCursors])
 
-    return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [])
-
+  const now = Date.now()
   const visibleCursors = Array.from(interpolatedCursors.values()).filter(
-    (c) =>
-      c.userId !== currentUserId &&
-      now - c.lastUpdate < CURSOR_IDLE_TIMEOUT_MS
+    (c) => now - c.lastUpdate < CURSOR_IDLE_TIMEOUT_MS
   )
 
   const FADE_START_MS = 4000 // Start fading 1s before hide

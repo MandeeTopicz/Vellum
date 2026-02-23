@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useState, useMemo, useEffect } from 'react'
 import { throttle } from '../../utils/throttle'
-import { Stage, Layer, Group, Rect, Shape } from 'react-konva'
+import { Stage, Layer, Group, Rect, Shape, Line } from 'react-konva'
 import type Konva from 'konva'
 import { stageToCanvas } from '../../utils/coordinates'
 import type { Viewport } from '../../utils/coordinates'
@@ -88,7 +88,7 @@ interface InfiniteCanvasProps {
   eraserActive?: boolean
   onPenStrokeStart?: (pos: CanvasPosition) => void
   onPenStrokeMove?: (pos: CanvasPosition) => void
-  onPenStrokeEnd?: () => void
+  onPenStrokeEnd?: (finalPos?: CanvasPosition) => void
   onEraserMove?: (pos: CanvasPosition) => void
   /** Cursor override when pen tools active (e.g. crosshair, eraser circle) */
   cursor?: string
@@ -103,8 +103,18 @@ interface InfiniteCanvasProps {
   onPanningChange?: (panning: boolean) => void
   /** Called on right-click anywhere on the canvas; clientX/clientY for fixed-position menu */
   onContextMenu?: (payload: { clientX: number; clientY: number }) => void
-  /** Called when right-click drag selection box completes; rect in canvas coords */
+  /** Called when right-click drag or Shift+drag selection box completes; rect in canvas coords */
   onSelectionBoxEnd?: (rect: { left: number; top: number; right: number; bottom: number }) => void
+  /** Lasso tool active: draw freehand selection path */
+  lassoToolActive?: boolean
+  /** Called when lasso path is complete; polygon in canvas coords */
+  onLassoEnd?: (polygon: { x: number; y: number }[]) => void
+  /** Called when right-click drag or lasso selection starts */
+  onSelectionStart?: () => void
+  /** Called when right-click drag or lasso selection ends */
+  onSelectionEnd?: () => void
+  /** Active pen stroke rendered last in main layer so it paints above all objects (avoids cross-layer compositing) */
+  activePenStrokeOverlay?: React.ReactNode
 }
 
 function InfiniteCanvas({
@@ -134,10 +144,16 @@ function InfiniteCanvas({
   onPanningChange,
   onContextMenu,
   onSelectionBoxEnd,
+  lassoToolActive = false,
+  onLassoEnd,
+  onSelectionStart,
+  onSelectionEnd,
+  activePenStrokeOverlay,
 }: InfiniteCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null)
   const viewportRef = useRef(viewport)
   viewportRef.current = viewport
+
   const [isPanning, setIsPanning] = useState(false)
   const [isPenDrawing, setIsPenDrawing] = useState(false)
   const [isEraserDragging, setIsEraserDragging] = useState(false)
@@ -150,10 +166,21 @@ function InfiniteCanvas({
   const rafIdRef = useRef<number | null>(null)
   const pendingPanRef = useRef<{ dx: number; dy: number } | null>(null)
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingWheelRef = useRef<{ deltaY: number; clientX: number; clientY: number } | null>(null)
+  const zoomRafRef = useRef<number | null>(null)
   const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
   const isRightDragSelectingRef = useRef(false)
   const selectionBoxRef = useRef<{ startX: number; startY: number; endX: number; endY: number } | null>(null)
+  /** 'right' = right-click drag, 'shift' = Shift+left-drag (for trackpad / no right-click) */
+  const selectionBoxTriggerRef = useRef<'right' | 'shift'>(null!)
   const selectionDocListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null)
+
+  const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([])
+  const [lassoClosed, setLassoClosed] = useState(false)
+  const isDrawingLassoRef = useRef(false)
+  const lassoPointsRef = useRef<{ x: number; y: number }[]>([])
+  const lassoDocListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null)
+  const penDocListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null)
 
   const throttledViewportChange = useMemo(
     () => throttle((v: Viewport) => onViewportChange(v), 16),
@@ -162,11 +189,22 @@ function InfiniteCanvas({
 
   useEffect(
     () => () => {
+      if (zoomRafRef.current) cancelAnimationFrame(zoomRafRef.current)
       if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
       if (selectionDocListenersRef.current) {
         document.removeEventListener('mousemove', selectionDocListenersRef.current.move)
         document.removeEventListener('mouseup', selectionDocListenersRef.current.up)
         selectionDocListenersRef.current = null
+      }
+      if (lassoDocListenersRef.current) {
+        document.removeEventListener('mousemove', lassoDocListenersRef.current.move)
+        document.removeEventListener('mouseup', lassoDocListenersRef.current.up)
+        lassoDocListenersRef.current = null
+      }
+      if (penDocListenersRef.current) {
+        document.removeEventListener('mousemove', penDocListenersRef.current.move)
+        document.removeEventListener('mouseup', penDocListenersRef.current.up)
+        penDocListenersRef.current = null
       }
     },
     []
@@ -207,38 +245,212 @@ function InfiniteCanvas({
       const stage = stageRef.current
       if (!stage) return
 
-      onZoomingChange?.(true)
-      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
-      zoomTimeoutRef.current = setTimeout(() => {
-        zoomTimeoutRef.current = null
-        onZoomingChange?.(false)
-      }, 200)
-
-      const pointer = stage.getPointerPosition()
-      if (!pointer) return
-
-      const scaleBy = 1 - e.evt.deltaY * ZOOM_SENSITIVITY
-      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * scaleBy))
-
-      // Zoom centered on mouse cursor: keep point under cursor fixed
-      const mousePointTo = {
-        x: (pointer.x - viewport.x) / viewport.scale,
-        y: (pointer.y - viewport.y) / viewport.scale,
+      pendingWheelRef.current = {
+        deltaY: e.evt.deltaY,
+        clientX: e.evt.clientX,
+        clientY: e.evt.clientY,
       }
-      const newX = pointer.x - mousePointTo.x * newScale
-      const newY = pointer.y - mousePointTo.y * newScale
 
-      throttledViewportChange({
-        x: newX,
-        y: newY,
-        scale: newScale,
-      })
+      if (!zoomRafRef.current) {
+        zoomRafRef.current = requestAnimationFrame(() => {
+          zoomRafRef.current = null
+          const evt = pendingWheelRef.current
+          if (!evt) return
+          pendingWheelRef.current = null
+
+          const stageInRaf = stageRef.current
+          if (!stageInRaf) return
+
+          onZoomingChange?.(true)
+          if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+          zoomTimeoutRef.current = setTimeout(() => {
+            zoomTimeoutRef.current = null
+            onZoomingChange?.(false)
+          }, 200)
+
+          const container = stageInRaf.container()
+          if (!container) return
+          const rect = container.getBoundingClientRect()
+          const pointer = {
+            x: evt.clientX - rect.left,
+            y: evt.clientY - rect.top,
+          }
+
+          const vp = viewportRef.current
+          const scaleBy = 1 - evt.deltaY * ZOOM_SENSITIVITY
+          const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, vp.scale * scaleBy))
+          const mousePointTo = {
+            x: (pointer.x - vp.x) / vp.scale,
+            y: (pointer.y - vp.y) / vp.scale,
+          }
+          const newX = pointer.x - mousePointTo.x * newScale
+          const newY = pointer.y - mousePointTo.y * newScale
+
+          throttledViewportChange({
+            x: newX,
+            y: newY,
+            scale: newScale,
+          })
+        })
+      }
     },
-    [viewport, throttledViewportChange, editingTextOpen, onZoomingChange]
+    [throttledViewportChange, editingTextOpen, onZoomingChange]
   )
 
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const isPenOrEraser = (penDrawingActive || eraserActive) && e.evt.button === 0
+      const isRightClick = e.evt.button === 2
+      const isLassoLeft = lassoToolActive && e.evt.button === 0
+      const canvasPos = getCanvasPos()
+
+      if (isPenOrEraser) {
+        e.evt.preventDefault()
+        e.evt.stopPropagation()
+        if ('cancelBubble' in e.evt) (e.evt as { cancelBubble?: boolean }).cancelBubble = true
+        if (e.cancelBubble !== undefined) e.cancelBubble = true
+        if (canvasPos && penDrawingActive && onPenStrokeStart) {
+          isPenDrawingRef.current = true
+          setIsPenDrawing(true)
+          onPenStrokeStart(canvasPos)
+
+          const docMove = (evt: MouseEvent) => {
+            const pos = clientToCanvas(evt.clientX, evt.clientY)
+            if (pos && isPenDrawingRef.current && onPenStrokeMove) {
+              onPenStrokeMove(pos)
+            }
+          }
+          const docUp = (evt: MouseEvent) => {
+            evt.preventDefault()
+            if (penDocListenersRef.current) {
+              document.removeEventListener('mousemove', penDocListenersRef.current.move)
+              document.removeEventListener('mouseup', penDocListenersRef.current.up)
+              penDocListenersRef.current = null
+            }
+            isPenDrawingRef.current = false
+            setIsPenDrawing(false)
+            const finalPos = clientToCanvas(evt.clientX, evt.clientY)
+            onPenStrokeEnd?.(finalPos ?? undefined)
+          }
+          const listeners = { move: docMove, up: docUp }
+          penDocListenersRef.current = listeners
+          document.addEventListener('mousemove', docMove)
+          document.addEventListener('mouseup', docUp)
+          return
+        }
+        if (canvasPos && eraserActive && onEraserMove) {
+          isEraserDraggingRef.current = true
+          setIsEraserDragging(true)
+          onEraserMove(canvasPos)
+          return
+        }
+      }
+
+      if ((isRightClick || isLassoLeft) && canvasPos) {
+        const isShiftLeftDrag = e.evt.button === 0 && e.evt.shiftKey
+        const startSelectionBox = (isRightClick || isShiftLeftDrag) && onSelectionBoxEnd
+        const startLasso = isLassoLeft && !isShiftLeftDrag && onLassoEnd
+
+        if (startLasso) {
+          e.evt.preventDefault()
+          e.evt.stopPropagation()
+          if ('cancelBubble' in e.evt) (e.evt as { cancelBubble?: boolean }).cancelBubble = true
+          if (e.cancelBubble !== undefined) e.cancelBubble = true
+          onSelectionStart?.()
+          isDrawingLassoRef.current = true
+          const pts = [{ x: canvasPos.x, y: canvasPos.y }]
+          lassoPointsRef.current = pts
+          setLassoPoints(pts)
+
+          const docMove = (evt: MouseEvent) => {
+            const pos = clientToCanvas(evt.clientX, evt.clientY)
+            if (pos && isDrawingLassoRef.current) {
+              lassoPointsRef.current = [...lassoPointsRef.current, { x: pos.x, y: pos.y }]
+              setLassoPoints(lassoPointsRef.current)
+            }
+          }
+          const docUp = (evt: MouseEvent) => {
+            evt.preventDefault()
+            if (lassoDocListenersRef.current) {
+              document.removeEventListener('mousemove', lassoDocListenersRef.current.move)
+              document.removeEventListener('mouseup', lassoDocListenersRef.current.up)
+              lassoDocListenersRef.current = null
+            }
+            isDrawingLassoRef.current = false
+            const pts = lassoPointsRef.current
+            if (pts.length >= 3 && onLassoEnd) {
+              setLassoClosed(true)
+              onLassoEnd([...pts])
+              setTimeout(() => {
+                setLassoClosed(false)
+                setLassoPoints([])
+              }, 200)
+            } else {
+              setLassoPoints([])
+            }
+            onSelectionEnd?.()
+          }
+          const listeners = { move: docMove, up: docUp }
+          lassoDocListenersRef.current = listeners
+          document.addEventListener('mousemove', docMove)
+          document.addEventListener('mouseup', docUp)
+          return
+        }
+        if (startSelectionBox) {
+          e.evt.preventDefault()
+          e.evt.stopPropagation()
+          if ('cancelBubble' in e.evt) (e.evt as { cancelBubble?: boolean }).cancelBubble = true
+          if (e.cancelBubble !== undefined) e.cancelBubble = true
+          onSelectionStart?.()
+          isRightDragSelectingRef.current = true
+          selectionBoxTriggerRef.current = isRightClick ? 'right' : 'shift'
+          const box = { startX: canvasPos.x, startY: canvasPos.y, endX: canvasPos.x, endY: canvasPos.y }
+          selectionBoxRef.current = box
+          setSelectionBox(box)
+
+          const docMove = (evt: MouseEvent) => {
+            const pos = clientToCanvas(evt.clientX, evt.clientY)
+            if (pos && selectionBoxRef.current) {
+              const next = { ...selectionBoxRef.current, endX: pos.x, endY: pos.y }
+              selectionBoxRef.current = next
+              setSelectionBox(next)
+            }
+          }
+          const docUp = (evt: MouseEvent) => {
+            evt.preventDefault()
+            if (selectionDocListenersRef.current) {
+              document.removeEventListener('mousemove', selectionDocListenersRef.current.move)
+              document.removeEventListener('mouseup', selectionDocListenersRef.current.up)
+              selectionDocListenersRef.current = null
+            }
+            isRightDragSelectingRef.current = false
+            const prev = selectionBoxRef.current
+            setSelectionBox(null)
+            selectionBoxRef.current = null
+            if (prev) {
+              const left = Math.min(prev.startX, prev.endX)
+              const right = Math.max(prev.startX, prev.endX)
+              const top = Math.min(prev.startY, prev.endY)
+              const bottom = Math.max(prev.startY, prev.endY)
+              const dx = right - left
+              const dy = bottom - top
+              const minDrag = 5
+              if ((dx >= minDrag || dy >= minDrag) && onSelectionBoxEnd) {
+                onSelectionBoxEnd({ left, top, right, bottom })
+              } else if (selectionBoxTriggerRef.current === 'right' && onContextMenu) {
+                onContextMenu({ clientX: evt.clientX, clientY: evt.clientY })
+              }
+            }
+            onSelectionEnd?.()
+          }
+          const listeners = { move: docMove, up: docUp }
+          selectionDocListenersRef.current = listeners
+          document.addEventListener('mousemove', docMove)
+          document.addEventListener('mouseup', docUp)
+          return
+        }
+      }
+
       if (editingTextOpen) {
         didPanRef.current = false
         return
@@ -246,74 +458,16 @@ function InfiniteCanvas({
       const target = e.target
       const targetName = target.name()
       const isBackground = targetName === 'background' || targetName === 'stageFill' || target === target.getStage()
-      const canvasPos = getCanvasPos()
       if (!canvasPos) return
 
-      if (e.evt.button === 2 && isBackground && onSelectionBoxEnd) {
-        isRightDragSelectingRef.current = true
-        const box = { startX: canvasPos.x, startY: canvasPos.y, endX: canvasPos.x, endY: canvasPos.y }
-        selectionBoxRef.current = box
-        setSelectionBox(box)
-
-        const docMove = (evt: MouseEvent) => {
-          const pos = clientToCanvas(evt.clientX, evt.clientY)
-          if (pos && selectionBoxRef.current) {
-            const next = { ...selectionBoxRef.current, endX: pos.x, endY: pos.y }
-            selectionBoxRef.current = next
-            setSelectionBox(next)
-          }
-        }
-        const docUp = (evt: MouseEvent) => {
-          if (selectionDocListenersRef.current) {
-            document.removeEventListener('mousemove', selectionDocListenersRef.current.move)
-            document.removeEventListener('mouseup', selectionDocListenersRef.current.up)
-            selectionDocListenersRef.current = null
-          }
-          isRightDragSelectingRef.current = false
-          const prev = selectionBoxRef.current
-          setSelectionBox(null)
-          selectionBoxRef.current = null
-          if (prev) {
-            const left = Math.min(prev.startX, prev.endX)
-            const right = Math.max(prev.startX, prev.endX)
-            const top = Math.min(prev.startY, prev.endY)
-            const bottom = Math.max(prev.startY, prev.endY)
-            const dx = right - left
-            const dy = bottom - top
-            const minDrag = 5
-            if ((dx >= minDrag || dy >= minDrag) && onSelectionBoxEnd) {
-              onSelectionBoxEnd({ left, top, right, bottom })
-            } else if (onContextMenu) {
-              onContextMenu({ clientX: evt.clientX, clientY: evt.clientY })
-            }
-          }
-        }
-        const listeners = { move: docMove, up: docUp }
-        selectionDocListenersRef.current = listeners
-        document.addEventListener('mousemove', docMove)
-        document.addEventListener('mouseup', docUp)
-        return
-      }
-      if (!isBackground) return
-
-      if (penDrawingActive && onPenStrokeStart) {
-        isPenDrawingRef.current = true
-        setIsPenDrawing(true)
-        onPenStrokeStart(canvasPos)
-        return
-      }
-      if (eraserActive && onEraserMove) {
-        isEraserDraggingRef.current = true
-        setIsEraserDragging(true)
-        onEraserMove(canvasPos)
-        return
-      }
-      if (arrowToolActive && onArrowDragStart) {
+      if (arrowToolActive && onArrowDragStart && e.evt.button === 0) {
+        e.evt.preventDefault()
         isArrowDraggingRef.current = true
         setIsArrowDragging(true)
         onArrowDragStart(canvasPos)
         return
       }
+      if (!isBackground) return
       const stage = stageRef.current
       if (stage) {
         const pos = stage.getPointerPosition()
@@ -326,7 +480,7 @@ function InfiniteCanvas({
         }
       }
     },
-    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, onPenStrokeStart, onEraserMove, onArrowDragStart, onPanningChange, getCanvasPos, onSelectionBoxEnd, onContextMenu, clientToCanvas]
+    [viewport, editingTextOpen, penDrawingActive, eraserActive, arrowToolActive, lassoToolActive, onPenStrokeStart, onPenStrokeMove, onPenStrokeEnd, onEraserMove, onArrowDragStart, onPanningChange, getCanvasPos, onSelectionBoxEnd, onLassoEnd, onContextMenu, onSelectionStart, onSelectionEnd, clientToCanvas]
   )
 
   const handleMouseMovePan = useCallback(
@@ -373,7 +527,8 @@ function InfiniteCanvas({
     if (isPenDrawingRef.current) {
       isPenDrawingRef.current = false
       setIsPenDrawing(false)
-      onPenStrokeEnd?.()
+      const finalPos = getCanvasPos()
+      onPenStrokeEnd?.(finalPos ?? undefined)
       return
     }
     if (isEraserDraggingRef.current) {
@@ -428,6 +583,7 @@ function InfiniteCanvas({
   const handleClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (didPanRef.current) return
+      if (penDrawingActive || eraserActive) return
       const target = e.target
       const targetName = target.name()
       const isBackground = targetName === 'background' || targetName === 'stageFill' || target === target.getStage()
@@ -448,7 +604,7 @@ function InfiniteCanvas({
         }
       }
     },
-    [onBackgroundClick]
+    [onBackgroundClick, penDrawingActive, eraserActive]
   )
 
   const handleContextMenu = useCallback(
@@ -466,6 +622,7 @@ function InfiniteCanvas({
       ref={stageRef}
       width={width}
       height={height}
+      pixelRatio={1}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseUp={(e) => handleMouseUp(e)}
@@ -512,12 +669,25 @@ function InfiniteCanvas({
               y={Math.min(selectionBox.startY, selectionBox.endY)}
               width={Math.abs(selectionBox.endX - selectionBox.startX)}
               height={Math.abs(selectionBox.endY - selectionBox.startY)}
-              stroke="#8093F1"
+              stroke="#4A90D9"
               strokeWidth={2 / viewport.scale}
-              fill="rgba(128, 147, 241, 0.15)"
+              dash={[6 / viewport.scale, 4 / viewport.scale]}
+              fill="rgba(74, 144, 217, 0.1)"
               listening={false}
             />
           )}
+          {lassoPoints.length >= 2 && (
+            <Line
+              points={lassoPoints.flatMap((p) => [p.x, p.y])}
+              stroke="#4A90D9"
+              strokeWidth={2 / viewport.scale}
+              dash={[6 / viewport.scale, 3 / viewport.scale]}
+              fill={lassoClosed ? 'rgba(74, 144, 217, 0.08)' : undefined}
+              closed={lassoClosed}
+              listening={false}
+            />
+          )}
+          {activePenStrokeOverlay}
         </Group>
       </Layer>
       {cursorLayer}

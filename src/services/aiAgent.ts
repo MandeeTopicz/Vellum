@@ -8,6 +8,7 @@ import type { CreateObjectInput } from './objects'
 import { deleteAllObjects, batchUpdatePositions } from './objects'
 import type { BoardObject } from '../types'
 import { toContextObject, TOOL_HANDLERS, executeCreateStickyGrid } from './aiTools'
+import { wrapCreatedItemsInFrame } from './templateInsert'
 
 /** Trigger phrases for CLEAR_BOARD intent (case-insensitive substring match) */
 const CLEAR_BOARD_TRIGGERS = [
@@ -308,8 +309,28 @@ export async function processAICommand(
     }
 
     if (data.toolCalls && data.toolCalls.length > 0) {
-      for (let i = 0; i < data.toolCalls.length; i++) {
-        const call = data.toolCalls[i]
+      let skipWrap = false
+      let callsToExecute = data.toolCalls
+      const getToolName = (tc: (typeof data.toolCalls)[0]) =>
+        (tc?.function as { name?: string } | undefined)?.name
+      const hasDuplicateColumn = callsToExecute.some((tc) => getToolName(tc) === 'duplicateColumn')
+      const hasSpawnTemplate = callsToExecute.some((tc) => getToolName(tc) === 'spawnTemplate')
+      if (hasDuplicateColumn) {
+        callsToExecute = callsToExecute.filter(
+          (tc) =>
+            getToolName(tc) !== 'spawnTemplate' && getToolName(tc) !== 'createKanbanBoard'
+        )
+        if (callsToExecute.length < data.toolCalls.length) {
+          console.log(
+            '[AI] duplicateColumn in batch — skipping spawnTemplate/createKanbanBoard to avoid creating new board'
+          )
+        }
+      } else if (hasSpawnTemplate && callsToExecute.length > 1) {
+        callsToExecute = callsToExecute.filter((tc) => getToolName(tc) === 'spawnTemplate')
+        console.log('[AI] spawnTemplate present with other tools — executing only spawnTemplate to avoid duplicate boards')
+      }
+      for (let i = 0; i < callsToExecute.length; i++) {
+        const call = callsToExecute[i]
         const fn = call?.function
         if (!fn) continue
 
@@ -327,16 +348,35 @@ export async function processAICommand(
           objectsList,
           createdItems,
           actions,
+          viewportCenter,
+          get skipWrap() {
+            return skipWrap
+          },
+          set skipWrap(v: boolean) {
+            skipWrap = v
+          },
         }
         const handler = TOOL_HANDLERS[fn.name]
         if (handler) {
           try {
             await handler(ctx)
           } catch (toolErr) {
+            const msg = toolErr instanceof Error ? toolErr.message : String(toolErr)
             console.error('[AI] Tool execution failed for', fn.name, ':', toolErr)
+            actions.push(`[${fn.name} failed] ${msg}`)
           }
         } else {
           console.warn('[AI] Unknown tool call:', fn.name)
+        }
+      }
+
+      if (createdItems.length >= 2 && !skipWrap) {
+        const wrapped = await wrapCreatedItemsInFrame(boardId, createdItems)
+        return {
+          success: true,
+          message: (data.content ?? '').trim() || actions.join('. ') || 'Done',
+          actions,
+          createdItems: wrapped,
         }
       }
 

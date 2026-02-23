@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Allow authenticated users to upload and read board uploads (links, images, etc.)
+    match /boards/{boardId}/uploads/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+    match /boards/{boardId}/images/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

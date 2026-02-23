@@ -69,7 +69,9 @@ export type ObjectUpdates =
   | { textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { displayOrder?: number }
   | { rotation: number }
+  | { points: [number, number][] }
   | { linkUrl: string | null }
+  | { dimensions: { width: number; height: number }; url?: string; title?: string }
 
 /** Input for creating a new object (server adds createdBy, createdAt, updatedAt). Optional fields get defaults. */
 export type CreateObjectInput = (
@@ -77,7 +79,7 @@ export type CreateObjectInput = (
   | { type: 'rectangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; cornerRadius?: number }
   | { type: 'circle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
   | { type: 'triangle'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number; inverted?: boolean }
-  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double' }
+  | { type: 'line'; start: Point; end: Point; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; connectionType?: 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double'; startObjectId?: string | null; endObjectId?: string | null; startAnchor?: 'top' | 'right' | 'bottom' | 'left'; startAnchorT?: number; endAnchor?: 'top' | 'right' | 'bottom' | 'left'; endAnchorT?: number }
   | { type: 'diamond'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
   | { type: 'star'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
   | { type: 'pentagon'; position: Point; dimensions: { width: number; height: number }; fillColor?: string; strokeColor?: string; strokeWidth?: number; strokeOpacity?: number; strokeStyle?: 'solid' | 'dashed' | 'dotted'; opacity?: number }
@@ -94,6 +96,10 @@ export type CreateObjectInput = (
   | { type: 'text'; position: Point; dimensions: { width: number; height: number }; content?: string; textStyle?: Partial<typeof DEFAULT_TEXT_STYLE> }
   | { type: 'emoji'; position: Point; emoji: string; fontSize?: number }
   | { type: 'frame'; position: Point; dimensions: { width: number; height: number }; title?: string }
+  | { type: 'image'; position: Point; dimensions: { width: number; height: number }; url: string }
+  | { type: 'document'; position: Point; dimensions: { width: number; height: number }; url: string; fileName?: string; fileType?: string }
+  | { type: 'embed'; position: Point; dimensions: { width: number; height: number }; url: string; embedType: 'youtube' | 'google-doc' }
+  | { type: 'link-card'; position: Point; dimensions: { width: number; height: number }; url: string; title?: string }
 ) & { rotation?: number; linkUrl?: string | null; displayOrder?: number }
 
 /** @internal Adds nesting, rotation, and linkUrl to position-based objects (backward compat) */
@@ -195,7 +201,13 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         strokeWidth: (data.strokeWidth as number) ?? 2,
         strokeStyle: (data.strokeStyle as 'solid' | 'dashed' | 'dotted') ?? undefined,
         opacity: typeof data.opacity === 'number' ? data.opacity : undefined,
-        connectionType: (data.connectionType as 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-elbow-bidirectional' | 'arrow-double') ?? 'line',
+        connectionType: (data.connectionType as 'line' | 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double') ?? 'line',
+        startObjectId: typeof data.startObjectId === 'string' ? data.startObjectId : (data.startObjectId === null ? null : undefined),
+        endObjectId: typeof data.endObjectId === 'string' ? data.endObjectId : (data.endObjectId === null ? null : undefined),
+        startAnchor: (data.startAnchor as 'top' | 'right' | 'bottom' | 'left') ?? undefined,
+        startAnchorT: typeof data.startAnchorT === 'number' ? data.startAnchorT : undefined,
+        endAnchor: (data.endAnchor as 'top' | 'right' | 'bottom' | 'left') ?? undefined,
+        endAnchorT: typeof data.endAnchorT === 'number' ? data.endAnchorT : undefined,
       }
     case 'diamond':
     case 'pentagon':
@@ -320,6 +332,42 @@ function docToObject(_boardId: string, docId: string, data: Record<string, unkno
         dimensions: data.dimensions as { width: number; height: number },
         title: (data.title as string) ?? undefined,
       } as BoardObject & { position: { x: number; y: number } })
+    case 'image':
+      return withNestingFields(data, {
+        ...base,
+        type: 'image',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        url: (data.url as string) ?? '',
+      })
+    case 'document':
+      return withNestingFields(data, {
+        ...base,
+        type: 'document',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        url: (data.url as string) ?? '',
+        fileName: (data.fileName as string) ?? undefined,
+        fileType: (data.fileType as string) ?? undefined,
+      })
+    case 'embed':
+      return withNestingFields(data, {
+        ...base,
+        type: 'embed',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        url: (data.url as string) ?? '',
+        embedType: (data.embedType as 'youtube' | 'google-doc') ?? 'youtube',
+      })
+    case 'link-card':
+      return withNestingFields(data, {
+        ...base,
+        type: 'link-card',
+        position: data.position as { x: number; y: number },
+        dimensions: data.dimensions as { width: number; height: number },
+        url: (data.url as string) ?? '',
+        title: (data.title as string) ?? undefined,
+      })
     default:
       throw new Error(`Unknown object type: ${(base as { type: string }).type}`)
   }
@@ -414,6 +462,24 @@ export function createInputToBoardObject(objectId: string, input: CreateObjectIn
       localY,
       ...(rot !== undefined && { rotation: rot }),
     } as TextObject
+  }
+  if (input.type === 'image' || input.type === 'document' || input.type === 'embed' || input.type === 'link-card') {
+    const shape = {
+      ...base,
+      type: input.type,
+      position: pos,
+      dimensions: dims,
+      url: (input as { url: string }).url,
+      ...(input.type === 'document' && {
+        fileName: (input as { fileName?: string }).fileName,
+        fileType: (input as { fileType?: string }).fileType,
+      }),
+      ...(input.type === 'embed' && { embedType: (input as { embedType: 'youtube' | 'google-doc' }).embedType }),
+      ...(input.type === 'link-card' && { title: (input as { title?: string }).title }),
+      ...(parentId !== null && { parentId: parentId ?? undefined, localX, localY }),
+      ...(rot !== undefined && { rotation: rot }),
+    }
+    return shape as BoardObject
   }
   const shapeBase = {
     ...base,
@@ -557,6 +623,8 @@ export async function updateObject(boardId: string, objectId: string, updates: O
     if (key === 'dimensions' && value && typeof value === 'object' && 'width' in value && 'height' in value) {
       docUpdates['dimensions.width'] = (value as { width: number }).width
       docUpdates['dimensions.height'] = (value as { height: number }).height
+    } else if (key === 'points' && Array.isArray(value) && value.length > 0 && Array.isArray(value[0])) {
+      docUpdates.points = (value as [number, number][]).flat()
     } else {
       docUpdates[key] = value
     }
@@ -592,6 +660,55 @@ export async function batchUpdatePositions(
         updatedAt: serverTimestamp(),
       })
     }
+  }
+  await batch.commit()
+}
+
+/** Line endpoint update for batch write (avoids intermediate state during frame drag) */
+export type LineEndpointUpdate = {
+  objectId: string
+  start: { x: number; y: number }
+  end: { x: number; y: number }
+}
+
+/**
+ * Batch update positions and line endpoints in a single Firestore batch.
+ * Use on drag end so frame, children, and lines commit atomically (no intermediate distortion).
+ */
+export async function batchUpdatePositionsAndLines(
+  boardId: string,
+  positionUpdates: PositionUpdate[],
+  lineUpdates: LineEndpointUpdate[]
+): Promise<void> {
+  if (positionUpdates.length === 0 && lineUpdates.length === 0) return
+  const batch = writeBatch(db)
+  for (const u of positionUpdates) {
+    const { objectId, x, y, parentId, localX, localY } = u
+    if (typeof parentId !== 'undefined') {
+      batch.update(objectRef(boardId, objectId), {
+        parentId: parentId ?? null,
+        localX: localX ?? x,
+        localY: localY ?? y,
+        'position.x': localX ?? x,
+        'position.y': localY ?? y,
+        updatedAt: serverTimestamp(),
+      })
+    } else {
+      batch.update(objectRef(boardId, objectId), {
+        'position.x': x,
+        'position.y': y,
+        updatedAt: serverTimestamp(),
+      })
+    }
+  }
+  for (const u of lineUpdates) {
+    batch.update(objectRef(boardId, u.objectId), {
+      'start.x': u.start.x,
+      'start.y': u.start.y,
+      'end.x': u.end.x,
+      'end.y': u.end.y,
+      updatedAt: serverTimestamp(),
+    })
   }
   await batch.commit()
 }
@@ -748,7 +865,14 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
         obj
       )
     case 'line': {
-      const line = obj as { startObjectId?: string | null; endObjectId?: string | null }
+      const line = obj as {
+        startObjectId?: string | null
+        endObjectId?: string | null
+        startAnchor?: 'top' | 'right' | 'bottom' | 'left'
+        startAnchorT?: number
+        endAnchor?: 'top' | 'right' | 'bottom' | 'left'
+        endAnchorT?: number
+      }
       return withRotationAndLink(
         {
           ...base,
@@ -759,6 +883,10 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
           connectionType: obj.connectionType ?? 'line',
           ...(line.startObjectId !== undefined && { startObjectId: line.startObjectId }),
           ...(line.endObjectId !== undefined && { endObjectId: line.endObjectId }),
+          ...(line.startAnchor !== undefined && { startAnchor: line.startAnchor }),
+          ...(typeof line.startAnchorT === 'number' && { startAnchorT: line.startAnchorT }),
+          ...(line.endAnchor !== undefined && { endAnchor: line.endAnchor }),
+          ...(typeof line.endAnchorT === 'number' && { endAnchorT: line.endAnchorT }),
         },
         obj
       )
@@ -792,6 +920,45 @@ export function objectToFirestoreDoc(obj: BoardObject): Record<string, unknown> 
           ...base,
           position: obj.position,
           dimensions: obj.dimensions,
+          title: (obj as { title?: string }).title,
+        },
+        obj
+      )
+    case 'image':
+      return withRotationAndLink(
+        { ...base, position: obj.position, dimensions: obj.dimensions, url: (obj as { url: string }).url },
+        obj
+      )
+    case 'document':
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          url: (obj as { url: string }).url,
+          fileName: (obj as { fileName?: string }).fileName,
+          fileType: (obj as { fileType?: string }).fileType,
+        },
+        obj
+      )
+    case 'embed':
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          url: (obj as { url: string }).url,
+          embedType: (obj as { embedType: 'youtube' | 'google-doc' }).embedType,
+        },
+        obj
+      )
+    case 'link-card':
+      return withRotationAndLink(
+        {
+          ...base,
+          position: obj.position,
+          dimensions: obj.dimensions,
+          url: (obj as { url: string }).url,
           title: (obj as { title?: string }).title,
         },
         obj

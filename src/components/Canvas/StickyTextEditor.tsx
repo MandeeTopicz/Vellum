@@ -8,6 +8,8 @@ interface StickyTextEditorProps {
   viewport: Viewport
   onSave: (content: string) => void
   onCancel: () => void
+  /** World position for frame children; when set, used instead of sticky.position for placement */
+  worldPosition?: { x: number; y: number }
 }
 
 export default function StickyTextEditor({
@@ -15,10 +17,12 @@ export default function StickyTextEditor({
   viewport,
   onSave,
   onCancel,
+  worldPosition,
 }: StickyTextEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const pos = worldPosition ?? sticky.position
 
-  const { x: screenX, y: screenY } = canvasToStage(sticky.position.x, sticky.position.y, viewport)
+  const { x: screenX, y: screenY } = canvasToStage(pos.x, pos.y, viewport)
   const screenW = sticky.dimensions.width * viewport.scale
   const screenH = sticky.dimensions.height * viewport.scale
 

@@ -1,7 +1,7 @@
 const DB_NAME = 'vellum-undo'
 const DB_VERSION = 1
 const STORE_NAME = 'stacks'
-const MAX_STACK_SIZE = 100
+const MAX_STACK_SIZE = 10000
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

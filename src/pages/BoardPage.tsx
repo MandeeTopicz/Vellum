@@ -8,6 +8,7 @@ import { clearConversation } from '../services/aiAgent'
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas'
 import CursorLayer from '../components/Canvas/CursorLayer'
 import ObjectLayer from '../components/Canvas/ObjectLayer'
+import { ActiveStrokeLine } from '../components/Canvas/shapes'
 import CommentLayer from '../components/Canvas/CommentLayer'
 import WhiteboardToolbar from '../components/Canvas/WhiteboardToolbar'
 import PenStylingToolbar from '../components/Canvas/PenStylingToolbar'
@@ -34,6 +35,7 @@ import { getParentId, resolveWorldPos, type FramesByIdMap } from '../utils/frame
 import type { LineObject } from '../types'
 import type { BoardObject } from '../types'
 import type { ObjectUpdates } from '../services/objects'
+import type { BoardComment } from '../services/comments'
 import { useBoardData } from '../hooks/useBoardData'
 import { useBoardTools } from '../hooks/useBoardTools'
 import { useBoardEvents } from '../hooks/useBoardEvents'
@@ -78,18 +80,56 @@ export default function BoardPage() {
     setIsPanning,
   } = data
 
+  const stableViewport = useMemo(
+    () => ({ x: viewport.x, y: viewport.y, scale: viewport.scale }),
+    [viewport.x, viewport.y, viewport.scale]
+  )
+
   const tools = useBoardTools(canEdit)
 
+  const handleContextMenu = useCallback(
+    (p: { clientX: number; clientY: number }) => {
+      tools.setContextMenuPos({ x: p.clientX, y: p.clientY })
+    },
+    [tools.setContextMenuPos]
+  )
+  const handleSelectionStart = useCallback(() => {
+    tools.setSelectionActive(true)
+    setIsSelecting(true)
+  }, [tools.setSelectionActive])
+  const handleSelectionEnd = useCallback(() => {
+    tools.setSelectionActive(false)
+    setIsSelecting(false)
+  }, [tools.setSelectionActive])
+
+  const handleCommentClick = useCallback(
+    (comment: BoardComment) => {
+      tools.setCommentModalPos(null)
+      tools.setCommentThread(comment)
+    },
+    [tools.setCommentModalPos, tools.setCommentThread]
+  )
+
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isSelecting, setIsSelecting] = useState(false)
   const [multiDragPositions, setMultiDragPositions] = useState<Record<string, { x: number; y: number }> | null>(null)
   const [multiDragLineEndpoints, setMultiDragLineEndpoints] = useState<Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> | null>(null)
   const multiDragStartPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null)
+  const uploadFileInputRef = useRef<HTMLInputElement>(null)
   const multiDragStartPointerRef = useRef<{ x: number; y: number } | null>(null)
+  /** Snapshot of line start/end at drag start — avoids compounding errors during fast movement */
+  const multiDragStartLineEndpointsRef = useRef<Record<string, { start: { x: number; y: number }; end: { x: number; y: number } }> | null>(null)
+  const multiDragRafIdRef = useRef<number | null>(null)
   const clearMultiDragPositions = useCallback(() => {
     setMultiDragPositions(null)
     setMultiDragLineEndpoints(null)
     multiDragStartPositionsRef.current = null
     multiDragStartPointerRef.current = null
+    multiDragStartLineEndpointsRef.current = null
+    if (multiDragRafIdRef.current != null) {
+      cancelAnimationFrame(multiDragRafIdRef.current)
+      multiDragRafIdRef.current = null
+    }
   }, [])
   const throttledSetMultiDragPositions = useMemo(
     () => throttle((p: Record<string, { x: number; y: number }>) => setMultiDragPositions(p), 16),
@@ -99,54 +139,64 @@ export default function BoardPage() {
   const handleMultiDragMove = useCallback(
     (positions: Record<string, { x: number; y: number }>) => {
       const start = multiDragStartPositionsRef.current
+      const lineSnap = multiDragStartLineEndpointsRef.current
       if (!start) return
-      const movingObjectIds = new Set(
-        Object.keys(positions).filter((id) => objects[id]?.type !== 'line')
-      )
-      const framesById: FramesByIdMap = {}
-      for (const o of Object.values(objects)) {
-        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
-      }
-      const nextPositions: Record<string, { x: number; y: number }> = {}
-      const lineEndpoints: Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> = {}
-      for (const [id, pos] of Object.entries(positions)) {
-        const obj = objects[id]
-        if (!obj) continue
-        if (obj.type === 'line') {
-          const line = obj as LineObject
-          const status = getLineAnchorStatus(line, id, objects, movingObjectIds, framesById)
-          if (status.startConnected && status.endConnected) {
-            const startPos = start[id]
-            if (startPos) {
-              const dx = pos.x - startPos.x
-              const dy = pos.y - startPos.y
-              lineEndpoints[id] = {
-                start: { x: line.start.x + dx, y: line.start.y + dy },
-                end: { x: line.end.x + dx, y: line.end.y + dy },
+
+      if (multiDragRafIdRef.current != null) cancelAnimationFrame(multiDragRafIdRef.current)
+      multiDragRafIdRef.current = requestAnimationFrame(() => {
+        multiDragRafIdRef.current = null
+        const movingObjectIds = new Set(
+          Object.keys(positions).filter((id) => objects[id]?.type !== 'line')
+        )
+        const framesById: FramesByIdMap = {}
+        for (const o of Object.values(objects)) {
+          if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+        }
+        const nextPositions: Record<string, { x: number; y: number }> = {}
+        const lineEndpoints: Record<string, { start?: { x: number; y: number }; end?: { x: number; y: number } }> = {}
+
+        for (const [id, pos] of Object.entries(positions)) {
+          const obj = objects[id]
+          if (!obj) continue
+          if (obj.type === 'line') {
+            const line = obj as LineObject
+            const status = getLineAnchorStatus(line, id, objects, movingObjectIds, framesById)
+            const snap = lineSnap?.[id]
+            const snapStart = snap?.start ?? line.start
+            const snapEnd = snap?.end ?? line.end
+            if (status.startConnected && status.endConnected) {
+              const startPos = start[id]
+              if (startPos) {
+                const ldx = pos.x - startPos.x
+                const ldy = pos.y - startPos.y
+                lineEndpoints[id] = {
+                  start: { x: snapStart.x + ldx, y: snapStart.y + ldy },
+                  end: { x: snapEnd.x + ldx, y: snapEnd.y + ldy },
+                }
+              }
+              nextPositions[id] = pos
+            } else if (status.startConnected) {
+              const startPos = start[id]
+              if (startPos) {
+                const ldx = pos.x - startPos.x
+                const ldy = pos.y - startPos.y
+                lineEndpoints[id] = { start: { x: snapStart.x + ldx, y: snapStart.y + ldy } }
+              }
+            } else if (status.endConnected) {
+              const startPos = start[id]
+              if (startPos) {
+                const ldx = pos.x - startPos.x
+                const ldy = pos.y - startPos.y
+                lineEndpoints[id] = { end: { x: snapEnd.x + ldx, y: snapEnd.y + ldy } }
               }
             }
+          } else {
             nextPositions[id] = pos
-          } else if (status.startConnected) {
-            const startPos = start[id]
-            if (startPos) {
-              const dx = pos.x - startPos.x
-              const dy = pos.y - startPos.y
-              lineEndpoints[id] = { start: { x: line.start.x + dx, y: line.start.y + dy } }
-            }
-          } else if (status.endConnected) {
-            const startPos = start[id]
-            if (startPos) {
-              const dx = pos.x - startPos.x
-              const dy = pos.y - startPos.y
-              lineEndpoints[id] = { end: { x: line.end.x + dx, y: line.end.y + dy } }
-            }
           }
-        } else {
-          nextPositions[id] = pos
         }
-      }
-      throttledSetMultiDragPositions(nextPositions)
-      setMultiDragLineEndpoints(Object.keys(lineEndpoints).length > 0 ? lineEndpoints : null)
+        throttledSetMultiDragPositions(nextPositions)
+        setMultiDragLineEndpoints(Object.keys(lineEndpoints).length > 0 ? lineEndpoints : null)
+      })
     },
     [objects, throttledSetMultiDragPositions]
   )
@@ -154,7 +204,24 @@ export default function BoardPage() {
   const handleMultiDragStart = useCallback((positions: Record<string, { x: number; y: number }>) => {
     setMultiDragPositions(positions)
     setMultiDragLineEndpoints(null)
-  }, [])
+    const movingObjectIds = new Set(
+      Object.keys(positions).filter((id) => objects[id]?.type !== 'line')
+    )
+    const framesById: FramesByIdMap = {}
+    for (const o of Object.values(objects)) {
+      if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+    }
+    const lineSnap: Record<string, { start: { x: number; y: number }; end: { x: number; y: number } }> = {}
+    for (const [id, obj] of Object.entries(objects)) {
+      if (obj?.type !== 'line') continue
+      const line = obj as LineObject
+      const status = getLineAnchorStatus(line, id, objects, movingObjectIds, framesById)
+      if (status.startConnected || status.endConnected) {
+        lineSnap[id] = { start: { ...line.start }, end: { ...line.end } }
+      }
+    }
+    multiDragStartLineEndpointsRef.current = Object.keys(lineSnap).length > 0 ? lineSnap : null
+  }, [objects])
 
   /** Include frame children and lines whose start/end anchors connect to selected objects */
   const expandedSelectedIds = useMemo(() => {
@@ -182,6 +249,10 @@ export default function BoardPage() {
     return expanded
   }, [tools.selectedIds, objects])
 
+  const handleUploadClick = useCallback(() => {
+    uploadFileInputRef.current?.click()
+  }, [])
+
   const events = useBoardEvents({
     data,
     tools,
@@ -190,6 +261,14 @@ export default function BoardPage() {
     expandedSelectedIds,
     showToast: (msg) => setToastMessage(msg),
   })
+
+  const handleUploadFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      events.handleUploadFiles(e.target.files)
+      e.target.value = ''
+    },
+    [events.handleUploadFiles]
+  )
 
   const selectionIsPenOnly =
     tools.selectedIds.size > 0 &&
@@ -201,8 +280,87 @@ export default function BoardPage() {
     selectionIsPenOnly && !DRAWING_TOOLS.includes(tools.activeTool as (typeof DRAWING_TOOLS)[number])
 
   const cursorLayerEl = useMemo(
-    () => <CursorLayer boardId={id} viewport={viewport} currentUserId={user?.uid ?? ''} />,
-    [id, viewport, user?.uid]
+    () => <CursorLayer boardId={id} viewport={stableViewport} currentUserId={user?.uid ?? ''} />,
+    [id, stableViewport, user?.uid]
+  )
+
+  const canvasChildren = useMemo(
+    () => (
+      <>
+        <ObjectLayer
+          objects={objects}
+          viewport={stableViewport}
+          canvasWidth={dimensions.width}
+          canvasHeight={dimensions.height}
+          arrowPreview={tools.arrowPreview}
+          selectedIds={expandedSelectedIds}
+          isPointerTool={tools.activeTool === 'pointer'}
+          isSelecting={isSelecting}
+          onObjectDragEnd={events.handleObjectDragEnd}
+          onObjectDragStart={events.handleObjectDragStart}
+          onObjectClick={events.handleObjectClick}
+          onObjectResizeEnd={events.handleObjectResizeEnd}
+          onStickyDoubleClick={events.handleStickyDoubleClick}
+          onTextDoubleClick={events.handleTextDoubleClick}
+          canEdit={canEdit}
+          currentPenStroke={tools.currentPenStroke}
+          isPenStrokeActive={tools.isPenStrokeActive}
+          multiDragPositions={multiDragPositions}
+          multiDragLineEndpoints={multiDragLineEndpoints}
+          multiDragStartPositionsRef={multiDragStartPositionsRef}
+          multiDragStartPointerRef={multiDragStartPointerRef}
+          onMultiDragStart={handleMultiDragStart}
+          onMultiDragMove={handleMultiDragMove}
+          convertJustFinishedId={events.convertJustFinishedId}
+          connectorToolActive={events.connectorToolActive}
+          onConnectorHover={events.onConnectorHover}
+          connectorSource={events.connectorSource}
+          connectorPreviewEndPos={events.connectorPreviewEndPos}
+          connectorHoveredObjectId={events.connectorHoveredObjectId}
+          activeConnectorType={events.activeConnectorType}
+        />
+        <CommentLayer
+          comments={comments}
+          isPointerTool={tools.activeTool === 'pointer'}
+          isSelecting={isSelecting}
+          onCommentClick={handleCommentClick}
+        />
+      </>
+    ),
+    [
+      objects,
+      stableViewport,
+      dimensions.width,
+      dimensions.height,
+      tools.arrowPreview,
+      expandedSelectedIds,
+      tools.activeTool,
+      isSelecting,
+      events.handleObjectDragEnd,
+      events.handleObjectDragStart,
+      events.handleObjectClick,
+      events.handleObjectResizeEnd,
+      events.handleStickyDoubleClick,
+      events.handleTextDoubleClick,
+      canEdit,
+      tools.currentPenStroke,
+      tools.isPenStrokeActive,
+      multiDragPositions,
+      multiDragLineEndpoints,
+      multiDragStartPositionsRef,
+      multiDragStartPointerRef,
+      handleMultiDragStart,
+      handleMultiDragMove,
+      events.convertJustFinishedId,
+      events.connectorToolActive,
+      events.onConnectorHover,
+      events.connectorSource,
+      events.connectorPreviewEndPos,
+      events.connectorHoveredObjectId,
+      events.activeConnectorType,
+      comments,
+      handleCommentClick,
+    ]
   )
 
   const editingSticky = tools.editingStickyId ? objects[tools.editingStickyId] : null
@@ -271,11 +429,42 @@ export default function BoardPage() {
         publicAccess={board.publicAccess ?? 'none'}
       />
 
-      <div ref={containerRef} className="board-canvas-container" data-testid="canvas">
+      <div
+        ref={containerRef}
+        className="board-canvas-container"
+        data-testid="canvas"
+        onDrop={
+          canEdit
+            ? (e) => {
+                e.preventDefault()
+                const rect = containerRef.current?.getBoundingClientRect()
+                if (!rect) return
+                const canvasPos = stageToCanvas(e.clientX - rect.left, e.clientY - rect.top, stableViewport)
+                events.handleCanvasFileDrop(Array.from(e.dataTransfer?.files ?? []), canvasPos)
+              }
+            : undefined
+        }
+        onDragOver={
+          canEdit
+            ? (e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'copy'
+              }
+            : undefined
+        }
+        onContextMenu={(e) => {
+          const target = e.target as HTMLElement
+          if (target.closest('textarea') || target.closest('input') || target.closest('[contenteditable="true"]')) {
+            return
+          }
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      >
         <InfiniteCanvas
           width={dimensions.width}
           height={dimensions.height}
-          viewport={viewport}
+          viewport={stableViewport}
           onViewportChange={onViewportChange}
           onMouseMove={events.handleStageMouseMove}
           onBackgroundClick={events.handleBackgroundClick}
@@ -296,45 +485,30 @@ export default function BoardPage() {
           onArrowDragEnd={events.handleArrowDragEnd}
           onZoomingChange={setIsZooming}
           onPanningChange={setIsPanning}
-          onContextMenu={(p) => tools.setContextMenuPos({ x: p.clientX, y: p.clientY })}
+          onContextMenu={handleContextMenu}
           onSelectionBoxEnd={canEdit ? events.handleSelectionBoxEnd : undefined}
+          lassoToolActive={tools.activeTool === 'lasso'}
+          onLassoEnd={canEdit ? events.handleLassoEnd : undefined}
+          onSelectionStart={handleSelectionStart}
+          onSelectionEnd={handleSelectionEnd}
+          activePenStrokeOverlay={
+            tools.isPenStrokeActive && tools.penDrawingActive ? (
+              <ActiveStrokeLine
+                lineRef={tools.activeStrokeLineRef}
+                stroke={tools.penStyles.color}
+                strokeWidth={tools.penStyles.size}
+                opacity={tools.penStyles.opacity / 100}
+                strokeType={tools.penStyles.strokeType}
+              />
+            ) : undefined
+          }
         >
-          <ObjectLayer
-            objects={objects}
-            viewport={viewport}
-            canvasWidth={dimensions.width}
-            canvasHeight={dimensions.height}
-            arrowPreview={tools.arrowPreview}
-            selectedIds={expandedSelectedIds}
-            isPointerTool={tools.activeTool === 'pointer'}
-            onObjectDragEnd={events.handleObjectDragEnd}
-            onObjectDragStart={events.handleObjectDragStart}
-            onObjectClick={events.handleObjectClick}
-            onObjectResizeEnd={events.handleObjectResizeEnd}
-            onStickyDoubleClick={events.handleStickyDoubleClick}
-            onTextDoubleClick={events.handleTextDoubleClick}
-            canEdit={canEdit}
-            currentPenStroke={tools.currentPenStroke}
-            multiDragPositions={multiDragPositions}
-            multiDragLineEndpoints={multiDragLineEndpoints}
-            multiDragStartPositionsRef={multiDragStartPositionsRef}
-            multiDragStartPointerRef={multiDragStartPointerRef}
-            onMultiDragStart={handleMultiDragStart}
-            onMultiDragMove={handleMultiDragMove}
-            convertJustFinishedId={events.convertJustFinishedId}
-          />
-          <CommentLayer
-            comments={comments}
-            isPointerTool={tools.activeTool === 'pointer'}
-            onCommentClick={(comment) => {
-              tools.setCommentModalPos(null)
-              tools.setCommentThread(comment)
-            }}
-          />
+          {canvasChildren}
         </InfiniteCanvas>
 
         <WhiteboardToolbar
           activeTool={tools.activeTool}
+          activeConnectorType={tools.activeConnectorType}
           onToolSelect={tools.handleToolSelect}
           onEmojiSelect={tools.handleEmojiSelect}
           onUndo={handleUndo}
@@ -355,6 +529,16 @@ export default function BoardPage() {
           hasSelection={tools.selectedIds.size > 0}
         />
 
+        <input
+          ref={uploadFileInputRef}
+          type="file"
+          accept="image/*,.pdf"
+          multiple
+          style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+          aria-hidden
+          onChange={handleUploadFileChange}
+        />
+
         {(tools.activeTool === 'pen' || tools.activeTool === 'highlighter' || tools.activeTool === 'eraser') &&
           tools.penStylesOpen && (
             <PenStylingToolbar
@@ -367,7 +551,7 @@ export default function BoardPage() {
         <WhiteboardControls
           showGrid={tools.showGrid}
           onGridToggle={tools.toggleGrid}
-          zoom={viewport.scale}
+          zoom={stableViewport.scale}
           onZoomIn={events.handleZoomIn}
           onZoomOut={events.handleZoomOut}
         />
@@ -383,7 +567,7 @@ export default function BoardPage() {
           return (
             <StickyTextEditor
               sticky={editingSticky}
-              viewport={viewport}
+              viewport={stableViewport}
               onSave={(content) => events.handleStickySave(tools.editingStickyId!, content)}
               onCancel={() => tools.setEditingStickyId(null)}
               worldPosition={worldPos ?? undefined}
@@ -401,7 +585,7 @@ export default function BoardPage() {
             />
             <TextOverlayTextarea
               editingText={tools.editingText}
-              viewportScale={viewport.scale}
+              viewportScale={stableViewport.scale}
               onCommit={events.handleTextCommit}
               onCancel={events.handleTextCancel}
               onBeforeClose={() => { tools.justClosedTextEditorRef.current = true }}
@@ -412,7 +596,7 @@ export default function BoardPage() {
 
         <CommentModal
           position={tools.commentModalPos}
-          viewport={viewport}
+          viewport={stableViewport}
           canvasWidth={dimensions.width}
           canvasHeight={dimensions.height}
           containerRef={containerRef}
@@ -452,9 +636,9 @@ export default function BoardPage() {
           })
           const centerX = minX === Infinity ? 0 : (minX + maxX) / 2
           const topY = minY === Infinity ? 0 : minY
-          const { x: stageX, y: stageY } = canvasToStage(centerX, topY - 40, viewport)
-          const tl = canvasToStage(minX, minY, viewport)
-          const br = canvasToStage(maxX, maxY, viewport)
+          const { x: stageX, y: stageY } = canvasToStage(centerX, topY - 40, stableViewport)
+          const tl = canvasToStage(minX, minY, stableViewport)
+          const br = canvasToStage(maxX, maxY, stableViewport)
           const overlayW = Math.max(1, br.x - tl.x)
           const overlayH = Math.max(1, br.y - tl.y)
           const isConverting = events.isConverting
@@ -592,7 +776,7 @@ export default function BoardPage() {
             centerX = (minX + maxX) / 2
             topY = minY
           }
-          const { x: stageX, y: stageY } = canvasToStage(centerX, topY, viewport)
+          const { x: stageX, y: stageY } = canvasToStage(centerX, topY, stableViewport)
           return (
             <StyleToolbar
               selectedObject={obj}
@@ -630,7 +814,7 @@ export default function BoardPage() {
               ? stageToCanvas(
                   tools.contextMenuPos.x - rect.left,
                   tools.contextMenuPos.y - rect.top,
-                  viewport
+                  stableViewport
                 )
               : undefined
           return (

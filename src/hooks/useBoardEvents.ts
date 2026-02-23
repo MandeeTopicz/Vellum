@@ -2,7 +2,7 @@
  * Board event handlers: drag, click, resize, keyboard, pen, arrow, eraser, etc.
  */
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { createObject, updateObject, deleteObject, batchDeleteObjects, batchUpdatePositions, createInputToBoardObject, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
+import { createObject, updateObject, deleteObject, batchDeleteObjects, batchUpdatePositions, batchUpdatePositionsAndLines, createInputToBoardObject, type ObjectUpdates, type CreateObjectInput, type PositionUpdate } from '../services/objects'
 import {
   penStrokesToImageBlob,
   recognizeHandwriting,
@@ -25,7 +25,11 @@ import type { LineObject, PenObject, TextObject, ObjectsMap, BoardObject } from 
 import { DEFAULT_TEXT_STYLE } from '../types/objects'
 import { throttle } from '../utils/throttle'
 import { debounce } from '../utils/debounce'
-import { objectsInSelectionRect, getBoardContentBounds, getObjectBounds, unionBounds } from '../utils/objectBounds'
+import { objectsInSelectionRect, objectsInLassoPolygon, getBoardContentBounds, getObjectBounds, unionBounds } from '../utils/objectBounds'
+import { isImageUrl, isGoogleDoc, isYouTube } from '../utils/urlDetection'
+import { uploadBoardImage, uploadBoardFile } from '../services/storage'
+import { stageToCanvas } from '../utils/coordinates'
+import { getNearestAnchor, getNearestEdgePoint } from '../utils/connectorAnchors'
 import { measureTextDimensions } from '../utils/textMeasurement'
 import { getLineAnchorStatus, getConnectedLineIds } from '../utils/connectedLines'
 import {
@@ -82,24 +86,65 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     eraserActive,
     penStyles,
     currentPenPointsRef,
-    setCurrentPenPoints,
     justClosedStickyEditorRef,
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
     justFinishedObjectDragRef,
+    justFinishedPenStrokeRef,
     textareaValueRef,
     copiedObjects,
     setCopiedObjects,
     setTemplatesModalOpen,
     setPenStylesOpen,
+    connectorToolActive,
+    activeConnectorType,
   } = tools
 
   const selectedIdsRef = useRef(selectedIds)
   selectedIdsRef.current = selectedIds
+  const activeToolRef = useRef(activeTool)
+  activeToolRef.current = activeTool
+  const connectorHoveredObjectIdRef = useRef<string | null>(null)
+  const objectsRef = useRef(objects)
 
   const [isConverting, setIsConverting] = useState(false)
   const [convertButtonShake, setConvertButtonShake] = useState(false)
   const [convertJustFinishedId, setConvertJustFinishedId] = useState<string | null>(null)
+
+  /** Smart connector flow: idle | preview (source chosen, waiting for dest) */
+  const connectorStateRef = useRef<{
+    phase: 'idle' | 'preview'
+    sourceObjectId: string | null
+    sourceAnchorPoint: { x: number; y: number } | null
+    sourceAnchor: 'top' | 'right' | 'bottom' | 'left'
+    sourceAnchorT: number
+  }>({ phase: 'idle', sourceObjectId: null, sourceAnchorPoint: null, sourceAnchor: 'right', sourceAnchorT: 0.5 })
+  const [connectorSource, setConnectorSource] = useState<{
+    sourceObjectId: string
+    sourceAnchorPoint: { x: number; y: number }
+    sourceAnchor: 'top' | 'right' | 'bottom' | 'left'
+  } | null>(null)
+  const [connectorPreviewEndPos, setConnectorPreviewEndPos] = useState<{ x: number; y: number } | null>(null)
+  const [connectorHoveredObjectId, setConnectorHoveredObjectId] = useState<string | null>(null)
+  const [connectorHoverAnchor, setConnectorHoverAnchor] = useState<{ x: number; y: number } | null>(null)
+  connectorHoveredObjectIdRef.current = connectorHoveredObjectId
+  objectsRef.current = objects
+
+  /** Clear connector hover/preview state when switching away from connector tool (avoids setState on every mousemove when inactive) */
+  const lastConnectorPreviewPosRef = useRef<{ x: number; y: number } | null>(null)
+  const lastConnectorHoverAnchorRef = useRef<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!connectorToolActive) {
+      lastConnectorPreviewPosRef.current = null
+      lastConnectorHoverAnchorRef.current = null
+      setConnectorHoverAnchor(null)
+      setConnectorPreviewEndPos(null)
+    }
+  }, [connectorToolActive])
+
+  const onConnectorHover = useCallback((objectId: string | null) => {
+    setConnectorHoveredObjectId(objectId)
+  }, [])
 
   /** Switch to pointer only if current tool is not pen/highlighter/eraser */
   const maybeSwitchToPointer = useCallback(() => {
@@ -118,14 +163,26 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         const updates = Array.from(queue.values())
         queue.clear()
         await batchUpdatePositions(id, updates)
-      }, 100),
+      }, 50),
     [id]
   )
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'l' || e.key === 'L') {
+        const target = e.target as HTMLElement
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+        setActiveTool((prev) => (prev === 'lasso' ? 'pointer' : 'lasso'))
+        return
+      }
       if (e.key === 'Escape') {
         if (isConverting) return
+        if (connectorStateRef.current.phase === 'preview') {
+          connectorStateRef.current = { phase: 'idle', sourceObjectId: null, sourceAnchorPoint: null, sourceAnchor: 'right', sourceAnchorT: 0.5 }
+          setConnectorSource(null)
+          setConnectorPreviewEndPos(null)
+          return
+        }
         maybeSwitchToPointer()
         setSelectedIds(new Set())
         setCommentModalPos(null)
@@ -201,7 +258,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, maybeSwitchToPointer, setSelectedIds, setObjects, setCommentModalPos, setCommentThread, setTemplatesModalOpen])
+  }, [id, canEdit, selectedIds, objects, pushUndo, handleUndo, handleRedo, maybeSwitchToPointer, setSelectedIds, setObjects, setCommentModalPos, setCommentThread, setTemplatesModalOpen, setActiveTool])
 
   const getViewportCenter = useCallback(() => {
     const w = dimensions.width
@@ -212,20 +269,64 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     }
   }, [dimensions, viewport])
 
-  const handleStageMouseMove = useMemo(
-    () =>
-      throttle(
-        (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } | null }) => {
-          if (!id || editingText != null) return
-          const stage = e.target?.getStage() as { getPointerPosition: () => { x: number; y: number } | null } | null
-          if (!stage?.getPointerPosition) return
-          const pos = stage.getPointerPosition()
-          if (!pos) return
-          flushCursorUpdate(pos.x, pos.y)
-        },
-        MOUSE_MOVE_THROTTLE_MS
-      ),
-    [id, editingText, flushCursorUpdate]
+  const stageMouseMoveRafRef = useRef<number | null>(null)
+  const lastStageMouseMoveRef = useRef<{ getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } | null>(null)
+  const handleStageMouseMove = useCallback(
+    (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } | null }) => {
+      lastStageMouseMoveRef.current = e.target
+      if (stageMouseMoveRafRef.current) cancelAnimationFrame(stageMouseMoveRafRef.current)
+      stageMouseMoveRafRef.current = requestAnimationFrame(() => {
+        stageMouseMoveRafRef.current = null
+        if (!id || editingText != null) return
+        const target = lastStageMouseMoveRef.current
+        const stage = target?.getStage?.() as { getPointerPosition: () => { x: number; y: number } | null } | null
+        if (!stage?.getPointerPosition) return
+        const pos = stage.getPointerPosition()
+        if (!pos) return
+        flushCursorUpdate(pos.x, pos.y)
+        if (connectorToolActive) {
+          const vp = viewportRef.current
+          const canvas = stageToCanvas(pos.x, pos.y, vp)
+          const POS_THRESHOLD = 2 // px - skip setState if position change is trivial
+          if (connectorStateRef.current.phase === 'preview') {
+            const last = lastConnectorPreviewPosRef.current
+            if (!last || Math.abs(canvas.x - last.x) > POS_THRESHOLD || Math.abs(canvas.y - last.y) > POS_THRESHOLD) {
+              lastConnectorPreviewPosRef.current = { x: canvas.x, y: canvas.y }
+              setConnectorPreviewEndPos({ x: canvas.x, y: canvas.y })
+            }
+          }
+          if (connectorHoveredObjectIdRef.current) {
+            const obj = objectsRef.current?.[connectorHoveredObjectIdRef.current]
+            if (obj && obj.type !== 'line' && obj.type !== 'pen') {
+              const framesById: FramesByIdMap = {}
+              for (const o of Object.values(objectsRef.current ?? {})) {
+                if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+              }
+              const pt = getNearestEdgePoint(obj, canvas, framesById)
+              const newAnchor = pt ? { x: pt.x, y: pt.y } : null
+              const last = lastConnectorHoverAnchorRef.current
+              const changed = !last !== !newAnchor ||
+                (newAnchor && (!last || Math.abs(newAnchor.x - last.x) > POS_THRESHOLD || Math.abs(newAnchor.y - last.y) > POS_THRESHOLD))
+              if (changed) {
+                lastConnectorHoverAnchorRef.current = newAnchor
+                setConnectorHoverAnchor(newAnchor)
+              }
+            } else {
+              if (lastConnectorHoverAnchorRef.current !== null) {
+                lastConnectorHoverAnchorRef.current = null
+                setConnectorHoverAnchor(null)
+              }
+            }
+          } else {
+            if (lastConnectorHoverAnchorRef.current !== null) {
+              lastConnectorHoverAnchorRef.current = null
+              setConnectorHoverAnchor(null)
+            }
+          }
+        }
+      })
+    },
+    [id, editingText, flushCursorUpdate, connectorToolActive]
   )
 
   useEffect(() => {
@@ -278,6 +379,10 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         const minY = Math.min(line.start.y, line.end.y)
         dx = x - minX
         dy = y - minY
+      } else if (draggedObj.type === 'pen') {
+        const bounds = getObjectBounds(draggedObj)
+        dx = x - bounds.left
+        dy = y - bounds.top
       } else if ('position' in draggedObj) {
         const worldStart = resolveWorldPos(draggedObj, framesById)
         if (!worldStart) return
@@ -290,6 +395,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
       const positionUpdates: Record<string, PositionUpdate> = {}
       type LineUpdate = { oid: string; to: { start: { x: number; y: number }; end: { x: number; y: number } }; from: { start: { x: number; y: number }; end: { x: number; y: number } } }
       const lineUpdates: LineUpdate[] = []
+      const penUpdates: Array<{ oid: string; points: [number, number][]; from: { points: [number, number][] } }> = []
       const batchUndoItems: Array<{ objectId: string; from: Record<string, unknown>; to: Record<string, unknown> }> = []
 
       const movingObjectIds = new Set(idsToMove.filter((id) => currentObjects[id]?.type !== 'line'))
@@ -320,6 +426,10 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
             continue
           }
           lineUpdates.push({ oid, to, from: { start: line.start, end: line.end } })
+        } else if (o.type === 'pen') {
+          const pen = o as PenObject
+          const newPoints = pen.points.map(([px, py]) => [px + dx, py + dy] as [number, number])
+          penUpdates.push({ oid, points: newPoints, from: { points: pen.points } })
         } else if (o.type === 'frame') {
           const pos = (o as { position: { x: number; y: number } }).position
           const newX = oid === objectId ? x : pos.x + dx
@@ -397,7 +507,19 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
 
       for (const { oid, to, from } of lineUpdates) {
         batchUndoItems.push({ objectId: oid, from, to })
-        await updateObject(id, oid, to)
+      }
+
+      if (lineUpdates.length > 0) {
+        const posArray = Object.values(positionUpdates)
+        const lineArray = lineUpdates.map((l) => ({ objectId: l.oid, start: l.to.start, end: l.to.end }))
+        posArray.forEach((p) => dragUpdateQueueRef.current.delete(p.objectId))
+        lineArray.forEach((l) => dragUpdateQueueRef.current.delete(l.objectId))
+        await batchUpdatePositionsAndLines(id, posArray, lineArray)
+      }
+
+      for (const { oid, points, from } of penUpdates) {
+        batchUndoItems.push({ objectId: oid, from, to: { points } })
+        await updateObject(id, oid, { points })
       }
 
       if (batchUndoItems.length > 0) {
@@ -407,6 +529,32 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         } else {
           pushUndo({ type: 'batchUpdate', updates: batchUndoItems })
         }
+      }
+
+      if (penUpdates.length > 0) {
+        setObjects((prev: ObjectsMap) => {
+          let next = prev
+          for (const { oid, points } of penUpdates) {
+            const o = next[oid]
+            if (o && o.type === 'pen') {
+              next = { ...next, [oid]: { ...o, points } }
+            }
+          }
+          return next
+        })
+      }
+
+      if (lineUpdates.length > 0) {
+        setObjects((prev: ObjectsMap) => {
+          let next = prev
+          for (const { oid, to } of lineUpdates) {
+            const o = next[oid]
+            if (o && o.type === 'line') {
+              next = { ...next, [oid]: { ...o, start: to.start, end: to.end } }
+            }
+          }
+          return next
+        })
       }
 
       if (Object.keys(positionUpdates).length > 0) {
@@ -439,6 +587,20 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     [id, canEdit, objects, pushUndo, setObjects, clearMultiDragPositions, expandedSelectedIds]
   )
 
+  const handleLassoEnd = useCallback(
+    (polygon: { x: number; y: number }[]) => {
+      const framesById: FramesByIdMap = {}
+      for (const o of Object.values(objects)) {
+        if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+      }
+      const allIds = objectsInLassoPolygon(objects, polygon, framesById)
+      const ids = allIds.filter((objectId) => objects[objectId]?.type === 'pen')
+      setSelectedIds(new Set(ids))
+      setActiveTool('pointer')
+    },
+    [objects, setSelectedIds, setActiveTool]
+  )
+
   const handleSelectionBoxEnd = useCallback(
     (rect: { left: number; top: number; right: number; bottom: number }) => {
       const framesById: FramesByIdMap = {}
@@ -446,16 +608,78 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
       }
       const allIds = objectsInSelectionRect(objects, rect, framesById)
-      const penOnlyIds = allIds.filter((oid) => objects[oid]?.type === 'pen')
-      setSelectedIds(new Set(penOnlyIds))
+      setSelectedIds(new Set(allIds))
       setActiveTool('pointer')
     },
     [objects, setSelectedIds, setActiveTool]
   )
 
   const handleObjectClick = useCallback(
-    (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }) => {
+    async (objectId: string, e: { ctrlKey: boolean; metaKey: boolean }, canvasPos?: { x: number; y: number }) => {
+      if (PERSISTENT_DRAWING_TOOLS.includes(activeTool as (typeof PERSISTENT_DRAWING_TOOLS)[number])) {
+        return
+      }
       const obj = objects[objectId]
+      if (!obj) return
+
+      if (connectorToolActive && canEdit && obj.type !== 'line' && obj.type !== 'pen') {
+        const framesById: FramesByIdMap = {}
+        for (const o of Object.values(objects)) {
+          if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
+        }
+        const b = getObjectBounds(obj)
+        const clickPos: { x: number; y: number } = canvasPos ?? { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }
+        const anchorResult = getNearestAnchor(obj, clickPos, framesById)
+        if (!anchorResult) return
+        const [anchorSide, anchorPoint] = anchorResult
+
+        const state = connectorStateRef.current
+        if (state.phase === 'idle') {
+          connectorStateRef.current = {
+            phase: 'preview',
+            sourceObjectId: objectId,
+            sourceAnchorPoint: anchorPoint,
+            sourceAnchor: anchorSide,
+            sourceAnchorT: anchorPoint.t,
+          }
+          setConnectorSource({ sourceObjectId: objectId, sourceAnchorPoint: anchorPoint, sourceAnchor: anchorSide })
+          setConnectorPreviewEndPos(canvasPos ? { x: canvasPos.x, y: canvasPos.y } : { x: anchorPoint.x, y: anchorPoint.y })
+          return
+        }
+        if (state.phase === 'preview' && state.sourceObjectId === objectId) {
+          return
+        }
+        if (state.phase === 'preview' && state.sourceObjectId !== objectId) {
+          const destCenter: { x: number; y: number } = canvasPos ?? (() => { const b2 = getObjectBounds(obj); return { x: (b2.left + b2.right) / 2, y: (b2.top + b2.bottom) / 2 }; })()
+          const destAnchorResult = getNearestAnchor(obj, destCenter, framesById)
+          if (!destAnchorResult || !id) return
+          const [destAnchorSide, destAnchorPoint] = destAnchorResult
+          const maxDisplayOrder = Math.max(0, ...Object.values(objects).map((o) => o.displayOrder ?? (o.createdAt?.toMillis?.() ?? 0)))
+          const input = {
+            type: 'line' as const,
+            start: state.sourceAnchorPoint!,
+            end: destAnchorPoint,
+            strokeColor: '#374151',
+            strokeWidth: 2,
+            connectionType: activeConnectorType as 'arrow-straight' | 'arrow-curved' | 'arrow-curved-cw' | 'arrow-elbow-bidirectional' | 'arrow-double',
+            startObjectId: state.sourceObjectId!,
+            endObjectId: objectId,
+            startAnchor: state.sourceAnchor,
+            startAnchorT: state.sourceAnchorT,
+            endAnchor: destAnchorSide,
+            endAnchorT: destAnchorPoint.t,
+            displayOrder: maxDisplayOrder + 1,
+          }
+          const newId = await createObject(id, input)
+          pushUndo({ type: 'create', objectId: newId, createInput: input })
+          setSelectedIds(new Set([newId]))
+          connectorStateRef.current = { phase: 'idle', sourceObjectId: null, sourceAnchorPoint: null, sourceAnchor: 'right', sourceAnchorT: 0.5 }
+          setConnectorSource(null)
+          setConnectorPreviewEndPos(null)
+          return
+        }
+      }
+
       const linkUrl = obj && (obj as { linkUrl?: string | null }).linkUrl
       if ((e.ctrlKey || e.metaKey) && linkUrl) {
         const url = linkUrl.startsWith('http://') || linkUrl.startsWith('https://') || linkUrl.startsWith('mailto:')
@@ -475,7 +699,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         return next
       })
     },
-    [objects, setSelectedIds]
+    [activeTool, objects, setSelectedIds, connectorToolActive, canEdit, id, activeConnectorType, pushUndo]
   )
 
   const handleObjectResizeEnd = useCallback(
@@ -486,17 +710,22 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
       const from =
         'start' in updates
           ? { start: (obj as LineObject).start, end: (obj as LineObject).end }
-          : {
-              position: (obj as { position: { x: number; y: number } }).position,
-              dimensions: (obj as { dimensions: { width: number; height: number } }).dimensions,
-              rotation: (obj as { rotation?: number }).rotation,
-            }
+          : 'points' in updates
+            ? { points: (obj as PenObject).points }
+            : {
+                position: (obj as { position: { x: number; y: number } }).position,
+                dimensions: (obj as { dimensions: { width: number; height: number } }).dimensions,
+                rotation: (obj as { rotation?: number }).rotation,
+              }
       pushUndo({ type: 'update', objectId, from, to: updates })
       setObjects((prev: ObjectsMap) => {
         const o = prev[objectId]
         if (!o) return prev
         if ('start' in updates) {
           return { ...prev, [objectId]: { ...o, start: updates.start, end: updates.end } }
+        }
+        if ('points' in updates) {
+          return { ...prev, [objectId]: { ...o, points: updates.points } }
         }
         const posUpdates = updates as { position: { x: number; y: number }; dimensions: { width: number; height: number }; rotation?: number }
         const next = {
@@ -572,12 +801,23 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
 
       const { x: canvasX, y: canvasY } = payload
 
+      if (connectorStateRef.current.phase === 'preview') {
+          connectorStateRef.current = { phase: 'idle', sourceObjectId: null, sourceAnchorPoint: null, sourceAnchor: 'right', sourceAnchorT: 0.5 }
+        setConnectorSource(null)
+        setConnectorPreviewEndPos(null)
+        return
+      }
+
       if (justFinishedArrowDragRef.current) {
         justFinishedArrowDragRef.current = false
         return
       }
       if (justFinishedObjectDragRef.current) {
         justFinishedObjectDragRef.current = false
+        return
+      }
+      if (justFinishedPenStrokeRef.current) {
+        justFinishedPenStrokeRef.current = false
         return
       }
 
@@ -702,24 +942,28 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
 
   const handleStickyDoubleClick = useCallback((objectId: string) => {
     if (!canEdit) return
+    if (PERSISTENT_DRAWING_TOOLS.includes(activeToolRef.current as (typeof PERSISTENT_DRAWING_TOOLS)[number])) return
     setEditingStickyId(objectId)
   }, [canEdit, setEditingStickyId])
 
   const handleTextDoubleClick = useCallback(
     (objectId: string) => {
       if (!canEdit) return
-      const obj = objects[objectId]
+      if (PERSISTENT_DRAWING_TOOLS.includes(activeToolRef.current as (typeof PERSISTENT_DRAWING_TOOLS)[number])) return
+      const objs = objectsRef.current
+      const obj = objs[objectId]
       if (!obj || obj.type !== 'text') return
       const textObj = obj as TextObject
       const content = textObj.content ?? ''
       const framesById: FramesByIdMap = {}
-      for (const o of Object.values(objects)) {
+      for (const o of Object.values(objs)) {
         if (o.type === 'frame') framesById[o.objectId] = o as FramesByIdMap[string]
       }
       const worldPos = getParentId(obj)
         ? (resolveWorldPos(obj, framesById) ?? { x: obj.position.x, y: obj.position.y })
         : obj.position
-      const stage = canvasToStage(worldPos.x, worldPos.y, viewport)
+      const vp = viewportRef.current
+      const stage = canvasToStage(worldPos.x, worldPos.y, vp)
       const rect = containerRef.current?.getBoundingClientRect()
       const screenX = rect ? rect.left + stage.x : stage.x
       const screenY = rect ? rect.top + stage.y : stage.y
@@ -736,7 +980,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         dimensions: textObj.dimensions,
       })
     },
-    [canEdit, objects, viewport]
+    [canEdit, setEditingText]
   )
 
   const handleStickySave = useCallback(
@@ -875,42 +1119,61 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
       if (isConverting || !penDrawingActive) return
       const pts: [number, number][] = [[pos.x, pos.y]]
       currentPenPointsRef.current = pts
-      setCurrentPenPoints(pts)
+      tools.setIsPenStrokeActive(true)
     },
-    [penDrawingActive, isConverting]
+    [penDrawingActive, isConverting, tools]
   )
 
   const handlePenStrokeMove = useCallback(
     (pos: { x: number; y: number }) => {
       if (!penDrawingActive) return
-      const next = [...currentPenPointsRef.current, [pos.x, pos.y] as [number, number]]
-      currentPenPointsRef.current = next
-      setCurrentPenPoints(next)
+      currentPenPointsRef.current.push([pos.x, pos.y])
+      const lineRef = tools.activeStrokeLineRef
+      if (lineRef?.current) {
+        const flat = currentPenPointsRef.current.flatMap(([x, y]) => [x, y])
+        lineRef.current.points(flat)
+        lineRef.current.getLayer()?.batchDraw()
+      }
     },
-    [penDrawingActive]
+    [penDrawingActive, tools]
   )
 
-  const handlePenStrokeEnd = useCallback(async () => {
-    const pointsToSave = [...currentPenPointsRef.current]
-    currentPenPointsRef.current = []
-    setCurrentPenPoints([])
-    if (!id || !canEdit || pointsToSave.length < 2) return
-    const isHighlighter = activeTool === 'highlighter'
-    const input = {
-      type: 'pen' as const,
-      points: pointsToSave,
-      color: penStyles.color,
-      strokeWidth: penStyles.size,
-      isHighlighter,
-      opacity: penStyles.opacity / 100,
-      strokeType: penStyles.strokeType,
-    }
-    const objectId = await createObject(id, input)
-    pushUndo({ type: 'create', objectId, createInput: input })
-    setSelectedIds(new Set([objectId]))
-    maybeSwitchToPointer()
-    setPenStylesOpen(false)
-  }, [id, canEdit, activeTool, penStyles, pushUndo, maybeSwitchToPointer, setPenStylesOpen])
+  const handlePenStrokeEnd = useCallback(
+    async (finalPos?: { x: number; y: number }) => {
+      justFinishedPenStrokeRef.current = true
+      let pointsToSave = [...currentPenPointsRef.current]
+      if (finalPos) {
+        pointsToSave = [...pointsToSave, [finalPos.x, finalPos.y] as [number, number]]
+      }
+      currentPenPointsRef.current = []
+      tools.setIsPenStrokeActive(false)
+      const lineRef = tools.activeStrokeLineRef
+      if (lineRef?.current) {
+        lineRef.current.points([])
+        lineRef.current.getLayer()?.batchDraw()
+      }
+      if (!id || !canEdit || pointsToSave.length < 2) return
+      const isHighlighter = activeTool === 'highlighter'
+      const maxDisplayOrder = Math.max(
+        0,
+        ...Object.values(objects).map((o) => o.displayOrder ?? (o.createdAt?.toMillis?.() ?? 0))
+      )
+      const input: CreateObjectInput = {
+        type: 'pen',
+        points: pointsToSave,
+        color: penStyles.color,
+        strokeWidth: penStyles.size,
+        isHighlighter,
+        opacity: penStyles.opacity / 100,
+        strokeType: penStyles.strokeType,
+        displayOrder: maxDisplayOrder + 1,
+      }
+      const objectId = await createObject(id, input)
+      pushUndo({ type: 'create', objectId, createInput: input })
+      setSelectedIds(new Set([objectId]))
+    },
+    [id, canEdit, activeTool, penStyles, pushUndo, objects, tools, setSelectedIds]
+  )
 
   const handleArrowDragStart = useCallback(
     (pos: { x: number; y: number }) => {
@@ -993,7 +1256,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
   )
 
   const handleAddLink = useCallback(
-    async (url: string) => {
+    async (url: string, contentType?: 'image' | 'document') => {
       if (!id || !canEdit) return
       if (selectedIds.size > 0) {
         const ids = Array.from(selectedIds)
@@ -1006,22 +1269,107 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         }
         return
       }
-      /** No selection: create a sticky at viewport center with the link (e.g. uploaded file) */
       const center = getViewportCenter()
-      const stickyInput: CreateObjectInput = {
-        type: 'sticky',
-        position: { x: center.x - 100, y: center.y - 80 },
-        dimensions: { width: 200, height: 160 },
-        content: 'Uploaded file',
-        fillColor: '#fef08a',
+      const maxZ = Math.max(0, ...Object.values(objects).map((o) => o.displayOrder ?? o.createdAt?.toMillis?.() ?? 0))
+      let input: CreateObjectInput
+      if (contentType === 'image' || (contentType !== 'document' && isImageUrl(url))) {
+        console.log('[IMAGE UPLOAD] handleAddLink: creating image from URL')
+        input = { type: 'image', position: { x: center.x - 200, y: center.y - 150 }, dimensions: { width: 400, height: 300 }, url }
+      } else if (contentType === 'document') {
+        input = { type: 'document', position: { x: center.x - 100, y: center.y - 120 }, dimensions: { width: 200, height: 240 }, url, fileName: 'Document', fileType: 'pdf' }
+      } else if (isYouTube(url)) {
+        input = { type: 'embed', position: { x: center.x - 280, y: center.y - 158 }, dimensions: { width: 560, height: 315 }, url, embedType: 'youtube' }
+      } else if (isGoogleDoc(url)) {
+        input = { type: 'embed', position: { x: center.x - 300, y: center.y - 200 }, dimensions: { width: 600, height: 400 }, url, embedType: 'google-doc' }
+      } else {
+        input = { type: 'link-card', position: { x: center.x - 150, y: center.y - 40 }, dimensions: { width: 300, height: 80 }, url, title: url }
       }
-      const newId = await createObject(id, stickyInput)
-      await updateObject(id, newId, { linkUrl: url })
-      pushUndo({ type: 'create', objectId: newId, createInput: stickyInput })
-      setSelectedIds(new Set([newId]))
-      maybeSwitchToPointer()
+      const newId = await createObject(id, { ...input, displayOrder: maxZ + 1 })
+      if (input.type === 'image') {
+        console.log('[IMAGE UPLOAD] handleAddLink created object id:', newId)
+        console.log('[IMAGE UPLOAD] setSelectedIds called with:', newId)
+        console.log('[IMAGE UPLOAD] setActiveTool called: pointer')
+      }
+      pushUndo({ type: 'create', objectId: newId, createInput: input })
+      setSelectedIds(new Set([newId]), { force: true })
+      setActiveTool('pointer')
     },
-    [id, canEdit, selectedIds, objects, pushUndo, getViewportCenter, setSelectedIds, maybeSwitchToPointer]
+    [id, canEdit, selectedIds, objects, pushUndo, getViewportCenter, setSelectedIds, setActiveTool]
+  )
+
+  const getMaxDisplayOrder = useCallback(() => {
+    return Math.max(0, ...Object.values(objects).map((o) => o.displayOrder ?? o.createdAt?.toMillis?.() ?? 0))
+  }, [objects])
+
+  const handleCanvasFileDrop = useCallback(
+    async (files: File[], dropCanvasPos: { x: number; y: number }) => {
+      if (!id || !canEdit) return
+      const center = dropCanvasPos
+      const maxZ = getMaxDisplayOrder() + 1
+      for (const file of files) {
+        try {
+          if (file.type.startsWith('image/')) {
+            console.log('[IMAGE UPLOAD] Starting upload')
+            const url = await uploadBoardImage(id, file)
+            const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+              const img = new window.Image()
+              img.onload = () => {
+                let w = img.naturalWidth
+                let h = img.naturalHeight
+                if (w > 800) {
+                  h = (h * 800) / w
+                  w = 800
+                }
+                resolve({ w, h })
+              }
+              img.onerror = () => resolve({ w: 400, h: 300 })
+              img.src = url
+            })
+            const input: CreateObjectInput = {
+              type: 'image',
+              position: { x: center.x - dims.w / 2, y: center.y - dims.h / 2 },
+              dimensions: { width: dims.w, height: dims.h },
+              url,
+              displayOrder: maxZ,
+            }
+            const newId = await createObject(id, input)
+            console.log('[IMAGE UPLOAD] Created object id:', newId)
+            pushUndo({ type: 'create', objectId: newId, createInput: input })
+            setSelectedIds(new Set([newId]), { force: true })
+            console.log('[IMAGE UPLOAD] setSelectedIds called with:', newId)
+          } else if (file.type === 'application/pdf') {
+            const url = await uploadBoardFile(id, file)
+            const input: CreateObjectInput = {
+              type: 'document',
+              position: { x: center.x - 100, y: center.y - 120 },
+              dimensions: { width: 200, height: 240 },
+              url,
+              fileName: file.name,
+              fileType: 'pdf',
+              displayOrder: maxZ,
+            }
+            const newId = await createObject(id, input)
+            pushUndo({ type: 'create', objectId: newId, createInput: input })
+            setSelectedIds(new Set([newId]), { force: true })
+          }
+        } catch (err) {
+          console.error('File drop failed:', err)
+          showToast?.(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        }
+      }
+      console.log('[IMAGE UPLOAD] setActiveTool called: pointer')
+      setActiveTool('pointer')
+    },
+    [id, canEdit, getMaxDisplayOrder, pushUndo, setSelectedIds, setActiveTool, showToast]
+  )
+
+  const handleUploadFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!id || !canEdit || !files || files.length === 0) return
+      const center = getViewportCenter()
+      await handleCanvasFileDrop(Array.from(files), center)
+    },
+    [id, canEdit, getViewportCenter, handleCanvasFileDrop]
   )
 
   const handleCopy = useCallback(() => {
@@ -1224,23 +1572,22 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
       const fontColor =
         Object.entries(strokeColorCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#000000'
 
-      const firstStroke = penObjs[0]
-      const strokeWidth =
-        firstStroke?.strokeWidth ??
-        (firstStroke as { lineWidth?: number })?.lineWidth ??
-        (firstStroke as { size?: number })?.size ??
-        2
-      const fontSizeFromStroke = Math.max(12, Math.min(72, strokeWidth * 8))
-      const lineCount = Math.max(1, Math.round(penH / 40))
-      const fontSizeFromBounds = Math.round(penH / lineCount)
-      const fontSize = Math.min(72, Math.max(12, Math.max(fontSizeFromStroke, fontSizeFromBounds)))
+      const totalHeight = penH
+      const totalWidth = penW
+      const isLikelySingleLine = totalHeight / totalWidth < 0.25
+      const estimatedLines = isLikelySingleLine
+        ? 1
+        : Math.max(1, Math.round(totalHeight / (totalWidth * 0.15)))
+      const rawFontSize = Math.round(totalHeight / estimatedLines)
+      const fontSize = Math.min(300, Math.max(12, rawFontSize))
 
       const textStyle = { ...DEFAULT_TEXT_STYLE, fontColor, fontSize }
+      const scaledMaxWidth = Math.max(800, fontSize * 20)
       const { width: textW, height: textH } = measureTextDimensions(
         text.trim(),
         fontSize,
         textStyle.fontFamily,
-        800
+        scaledMaxWidth
       )
       const textX = union.left + penW / 2 - textW / 2
       const textY = union.top + penH / 2 - textH / 2
@@ -1502,7 +1849,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
   )
 
   useEffect(() => {
-    const handleCopyPasteDuplicate = (e: KeyboardEvent) => {
+    const handleCopyPasteDuplicate = async (e: KeyboardEvent) => {
       if (!canEdit || editingStickyId || editingText) return
       const meta = e.metaKey || e.ctrlKey
       if (meta && e.key === 'c') {
@@ -1510,7 +1857,19 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
         handleCopy()
       } else if (meta && e.key === 'v') {
         e.preventDefault()
-        if (copiedObjects.length > 0) handlePaste()
+        if (copiedObjects.length > 0) {
+          handlePaste()
+        } else {
+          try {
+            const text = await navigator.clipboard.readText()
+            const trimmed = text?.trim() ?? ''
+            if (trimmed && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+              await handleAddLink(trimmed)
+            }
+          } catch {
+            /* clipboard not available or permission denied */
+          }
+        }
       } else if (meta && e.key === 'd') {
         e.preventDefault()
         if (selectedIds.size > 0) handleDuplicate()
@@ -1518,7 +1877,7 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     }
     window.addEventListener('keydown', handleCopyPasteDuplicate)
     return () => window.removeEventListener('keydown', handleCopyPasteDuplicate)
-  }, [canEdit, editingStickyId, editingText, selectedIds, copiedObjects, handleCopy, handlePaste, handleDuplicate])
+  }, [canEdit, editingStickyId, editingText, selectedIds, copiedObjects, handleCopy, handlePaste, handleDuplicate, handleAddLink])
 
   return {
     handleStageMouseMove,
@@ -1550,7 +1909,10 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     handleBoardNameChange,
     handleObjectStyleUpdate,
     handleAddLink,
+    handleCanvasFileDrop,
+    handleUploadFiles,
     handleSelectionBoxEnd,
+    handleLassoEnd,
     handleCopy,
     handlePaste,
     handleDuplicate,
@@ -1562,5 +1924,12 @@ export function useBoardEvents({ data, tools, user, clearMultiDragPositions, exp
     isConverting,
     convertButtonShake,
     convertJustFinishedId,
+    connectorSource,
+    connectorPreviewEndPos,
+    connectorHoveredObjectId,
+    connectorHoverAnchor,
+    onConnectorHover,
+    connectorToolActive,
+    activeConnectorType,
   }
 }

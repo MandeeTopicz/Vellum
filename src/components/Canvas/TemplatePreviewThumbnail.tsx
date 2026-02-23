@@ -1,10 +1,14 @@
 /**
- * TemplatePreviewThumbnail – SVG preview of a template showing words, colors, and layout.
- * Renders CreateObjectInput[] as scaled shapes with text.
+ * TemplatePreviewThumbnail – SVG preview of a template for the Template Selection Modal.
+ * Renders real composed template CreateObjectInput[] as scaled shapes.
+ * Layout-accurate, centered, fit-to-container with uniform scaling.
  */
+import { memo } from 'react'
 import { getTemplatePreviewObjects, getCreateInputsBbox } from '../../utils/templates'
 import { fitToRect } from '../../utils/scenePreview'
 import './TemplatePreviewThumbnail.css'
+
+const THUMBNAIL_PADDING = 20
 
 interface TemplatePreviewThumbnailProps {
   /** Template id (e.g. 'swot', 'kanban-board') */
@@ -17,21 +21,28 @@ interface TemplatePreviewThumbnailProps {
 }
 
 /**
- * Renders a template thumbnail with accurate content, colors, and layout.
- * @param templateKey - Template id
- * @param width - Preview width (default 160)
- * @param height - Preview height (default 100)
+ * Renders a template thumbnail with layout-accurate content from real template data.
+ * Read-only, no interaction. Used in Template Selection Modal.
  */
-export default function TemplatePreviewThumbnail({
+function TemplatePreviewThumbnailComponent({
   templateKey,
   width = 160,
   height = 100,
   className = '',
 }: TemplatePreviewThumbnailProps) {
   const inputs = getTemplatePreviewObjects(templateKey)
-  const bbox = getCreateInputsBbox(inputs)
 
-  if (!bbox || inputs.length === 0) {
+  const filteredInputs = inputs.filter((inp) => {
+    if (inp.type === 'rectangle' && inp.fillColor === '#FFFFFF') {
+      const area = inp.dimensions.width * inp.dimensions.height
+      if (area > 400_000) return false
+    }
+    return true
+  })
+
+  const bbox = getCreateInputsBbox(filteredInputs)
+
+  if (!bbox || filteredInputs.length === 0) {
     return (
       <div
         className={`template-preview-empty ${className}`.trim()}
@@ -42,11 +53,11 @@ export default function TemplatePreviewThumbnail({
     )
   }
 
-  const { scale, tx, ty } = fitToRect(width, height, bbox, 8)
+  const { scale, tx, ty } = fitToRect(width, height, bbox, THUMBNAIL_PADDING)
   const transform = `translate(${tx},${ty}) scale(${scale})`
 
   const elements: React.ReactNode[] = []
-  inputs.forEach((inp, i) => {
+  filteredInputs.forEach((inp, i) => {
     const key = `${templateKey}-${i}`
 
     if (inp.type === 'sticky') {
@@ -86,50 +97,158 @@ export default function TemplatePreviewThumbnail({
           height={inp.dimensions.height}
           fill={inp.fillColor ?? 'transparent'}
           stroke={inp.strokeColor ?? '#e5e7eb'}
-          strokeWidth={0.5}
+          strokeWidth={inp.strokeWidth ?? 0.5}
           rx={inp.cornerRadius ?? 0}
         />
       )
       return
     }
 
-    if (inp.type === 'line') {
-      const isArrow = inp.connectionType === 'arrow-straight' || inp.connectionType === 'arrow-curved'
+    if (inp.type === 'circle') {
+      const cx = inp.position.x + inp.dimensions.width / 2
+      const cy = inp.position.y + inp.dimensions.height / 2
+      const rx = inp.dimensions.width / 2
+      const ry = inp.dimensions.height / 2
       elements.push(
-        <line
+        <ellipse
           key={key}
-          x1={inp.start.x}
-          y1={inp.start.y}
-          x2={inp.end.x}
-          y2={inp.end.y}
-          stroke={inp.strokeColor ?? '#64748b'}
-          strokeWidth={inp.strokeWidth ?? 1}
-          markerEnd={isArrow ? 'url(#template-preview-arrow)' : undefined}
+          cx={cx}
+          cy={cy}
+          rx={rx}
+          ry={ry}
+          fill={inp.fillColor ?? 'transparent'}
+          stroke={inp.strokeColor ?? 'transparent'}
+          strokeWidth={inp.strokeWidth ?? 0}
         />
       )
       return
     }
 
+    if (inp.type === 'diamond') {
+      const cx = inp.position.x + inp.dimensions.width / 2
+      const cy = inp.position.y + inp.dimensions.height / 2
+      const hw = inp.dimensions.width / 2
+      const hh = inp.dimensions.height / 2
+      const points = `${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}`
+      elements.push(
+        <polygon
+          key={key}
+          points={points}
+          fill={inp.fillColor ?? 'transparent'}
+          stroke={inp.strokeColor ?? 'transparent'}
+          strokeWidth={inp.strokeWidth ?? 0}
+        />
+      )
+      return
+    }
+
+    if (inp.type === 'line') {
+      const stroke = inp.strokeColor ?? '#64748b'
+      const strokeW = inp.strokeWidth ?? 1
+      const ct = inp.connectionType ?? 'line'
+      const isArrow =
+        ct === 'arrow-straight' ||
+        ct === 'arrow-curved' ||
+        ct === 'arrow-curved-cw' ||
+        ct === 'arrow-elbow-bidirectional' ||
+        ct === 'arrow-double'
+
+      if (ct === 'arrow-curved' || ct === 'arrow-curved-cw') {
+        const x1 = inp.start.x
+        const y1 = inp.start.y
+        const x2 = inp.end.x
+        const y2 = inp.end.y
+        const midX = (x1 + x2) / 2
+        const midY = (y1 + y2) / 2
+        const perp = (ct === 'arrow-curved-cw' ? -1 : 1) * 0.2
+        const cx = midX + perp * -(y2 - y1)
+        const cy = midY + perp * (x2 - x1)
+        const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`
+        elements.push(
+          <path
+            key={key}
+            d={d}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={strokeW}
+            markerEnd={isArrow ? 'url(#template-preview-arrow)' : undefined}
+          />
+        )
+      } else {
+        elements.push(
+          <line
+            key={key}
+            x1={inp.start.x}
+            y1={inp.start.y}
+            x2={inp.end.x}
+            y2={inp.end.y}
+            stroke={stroke}
+            strokeWidth={strokeW}
+            markerEnd={isArrow ? 'url(#template-preview-arrow)' : undefined}
+          />
+        )
+      }
+      return
+    }
+
     if (inp.type === 'text') {
       const content = truncateContent(inp.content, inp.dimensions.width, inp.dimensions.height)
+      const textAlign = inp.textStyle?.textAlign ?? 'left'
+      const x =
+        textAlign === 'center'
+          ? inp.position.x + inp.dimensions.width / 2
+          : textAlign === 'right'
+            ? inp.position.x + inp.dimensions.width - 2
+            : inp.position.x + 2
       elements.push(
         <g key={key}>
-          <rect
-            x={inp.position.x}
-            y={inp.position.y}
-            width={inp.dimensions.width}
-            height={inp.dimensions.height}
-            fill="transparent"
-          />
           <text
-            x={inp.position.x + 2}
+            x={x}
             y={inp.position.y + inp.dimensions.height / 2}
+            textAnchor={textAlign === 'center' ? 'middle' : textAlign === 'right' ? 'end' : 'start'}
             dominantBaseline="middle"
             className="template-preview-text template-preview-text-small"
           >
             {content}
           </text>
         </g>
+      )
+      return
+    }
+
+    if (inp.type === 'emoji') {
+      const size = 24
+      const cx = inp.position.x + size / 2
+      const cy = inp.position.y + size / 2
+      const fontSize = inp.fontSize ?? 14
+      elements.push(
+        <text
+          key={key}
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          className="template-preview-emoji"
+          style={{ fontSize }}
+        >
+          {inp.emoji ?? ''}
+        </text>
+      )
+      return
+    }
+
+    if (inp.type === 'pen' && inp.points.length >= 2) {
+      const d = inp.points
+        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`)
+        .join(' ')
+      elements.push(
+        <path
+          key={key}
+          d={d}
+          fill="none"
+          stroke={inp.color ?? '#374151'}
+          strokeWidth={inp.strokeWidth ?? 2}
+        />
       )
     }
   })
@@ -139,7 +258,7 @@ export default function TemplatePreviewThumbnail({
       className={`template-preview-thumbnail ${className}`.trim()}
       style={{ width, height }}
     >
-      <svg width={width} height={height} className="template-preview-svg">
+      <svg width={width} height={height} className="template-preview-svg" preserveAspectRatio="xMidYMid meet">
         <defs>
           <marker
             id="template-preview-arrow"
@@ -158,6 +277,8 @@ export default function TemplatePreviewThumbnail({
   )
 }
 
+export default memo(TemplatePreviewThumbnailComponent)
+
 /** Truncates content to fit small preview cells. */
 function truncateContent(
   content: string | undefined,
@@ -165,7 +286,7 @@ function truncateContent(
   maxH: number
 ): string {
   if (!content) return ''
-  const maxLen = Math.max(4, Math.floor((maxW * maxH) / 80))
+  const maxLen = Math.max(4, Math.floor((maxW * maxH) / 120))
   const single = content.replace(/\n/g, ' ').trim()
   if (single.length <= maxLen) return single
   return single.slice(0, maxLen - 1) + '…'

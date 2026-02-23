@@ -2,6 +2,7 @@
  * Board tool state: activeTool, selection, pen/eraser/arrow state.
  */
 import { useState, useCallback, useRef, useMemo } from 'react'
+import type Konva from 'konva'
 import type { WhiteboardTool } from '../components/Canvas/WhiteboardToolbar'
 import type { BoardObject } from '../types'
 import type { PenStyles } from '../components/Canvas/PenStylingToolbar'
@@ -13,12 +14,27 @@ const ERASER_CURSOR =
   "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><circle cx=\"16\" cy=\"16\" r=\"10\" fill=\"none\" stroke=\"%23333\" stroke-width=\"2\"/></svg>') 16 16, crosshair"
 
 const CONNECTION_TOOLS = ['arrow-straight', 'arrow-curved', 'arrow-curved-cw', 'arrow-elbow-bidirectional', 'arrow-double'] as const
-const isConnectionTool = (t: string): t is (typeof CONNECTION_TOOLS)[number] =>
-  CONNECTION_TOOLS.includes(t as (typeof CONNECTION_TOOLS)[number])
+export type ConnectorType = (typeof CONNECTION_TOOLS)[number]
+const isConnectionTool = (t: string): t is ConnectorType =>
+  CONNECTION_TOOLS.includes(t as ConnectorType)
+
+const PERSISTENT_DRAWING_TOOLS = ['pen', 'highlighter', 'eraser'] as const
 
 export function useBoardTools(canEdit: boolean) {
   const [activeTool, setActiveToolState] = useState<WhiteboardTool>('pointer')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedIds, setSelectedIdsRaw] = useState<Set<string>>(new Set())
+  const isSelectionActiveRef = useRef(false)
+  const setSelectionActive = useCallback((v: boolean) => {
+    isSelectionActiveRef.current = v
+  }, [])
+  const setSelectedIds = useCallback(
+    (value: React.SetStateAction<Set<string>>, options?: { force?: boolean }) => {
+      const isDrawing = PERSISTENT_DRAWING_TOOLS.includes(activeTool as (typeof PERSISTENT_DRAWING_TOOLS)[number])
+      if (!options?.force && isDrawing && !isSelectionActiveRef.current) return
+      setSelectedIdsRaw(value)
+    },
+    [activeTool]
+  )
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState<EditingTextState | null>(null)
   const [showGrid, setShowGrid] = useState(() => {
@@ -62,18 +78,23 @@ export function useBoardTools(canEdit: boolean) {
   const [templatesCategory, setTemplatesCategory] = useState('Meetings & Workshops')
   const [penStylesOpen, setPenStylesOpen] = useState(true)
   const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [activeConnectorType, setActiveConnectorType] = useState<ConnectorType>('arrow-straight')
 
   const currentPenPointsRef = useRef<[number, number][]>([])
+  const activeStrokeLineRef = useRef<Konva.Line | null>(null)
+  const [isPenStrokeActive, setIsPenStrokeActive] = useState(false)
   const justClosedStickyEditorRef = useRef(false)
   const justClosedTextEditorRef = useRef(false)
   const justFinishedArrowDragRef = useRef(false)
   const justFinishedObjectDragRef = useRef(false)
+  const justFinishedPenStrokeRef = useRef(false)
   /** Holds current textarea value while editing; used to commit before closing on background click */
   const textareaValueRef = useRef('')
 
   const penDrawingActive = (activeTool === 'pen' || activeTool === 'highlighter') && canEdit
   const eraserActive = activeTool === 'eraser' && canEdit
-  const arrowToolActive = isConnectionTool(activeTool) && canEdit
+  const connectorToolActive = activeTool === 'connector' && canEdit
+  const arrowToolActive = isConnectionTool(activeTool) && canEdit && !connectorToolActive
 
   const penStyles: PenStyles =
     activeTool === 'pen'
@@ -94,13 +115,20 @@ export function useBoardTools(canEdit: boolean) {
     }
   }, [penDrawingActive, currentPenPoints, penStyles, activeTool])
 
-  const canvasCursor = penDrawingActive || arrowToolActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
+  const lassoActive = activeTool === 'lasso' && canEdit
+  const canvasCursor =
+    penDrawingActive || arrowToolActive || connectorToolActive || lassoActive ? 'crosshair' : eraserActive ? ERASER_CURSOR : undefined
 
   const handleToolSelect = useCallback((tool: WhiteboardTool) => {
     justClosedStickyEditorRef.current = false
     justClosedTextEditorRef.current = false
     setArrowPreview(null)
-    setActiveToolState(tool)
+    if (isConnectionTool(tool)) {
+      setActiveToolState('connector' as WhiteboardTool)
+      setActiveConnectorType(tool)
+    } else {
+      setActiveToolState(tool)
+    }
     if (['pen', 'highlighter', 'eraser'].includes(tool)) {
       setPenStylesOpen(true)
     }
@@ -158,6 +186,9 @@ export function useBoardTools(canEdit: boolean) {
     currentPenPoints,
     setCurrentPenPoints,
     currentPenPointsRef,
+    activeStrokeLineRef,
+    isPenStrokeActive,
+    setIsPenStrokeActive,
     arrowPreview,
     setArrowPreview,
     penToolStyles,
@@ -165,6 +196,8 @@ export function useBoardTools(canEdit: boolean) {
     eraserSize,
     penDrawingActive,
     eraserActive,
+    connectorToolActive,
+    activeConnectorType,
     arrowToolActive,
     penStyles,
     currentPenStroke,
@@ -176,6 +209,7 @@ export function useBoardTools(canEdit: boolean) {
     justClosedTextEditorRef,
     justFinishedArrowDragRef,
     justFinishedObjectDragRef,
+    justFinishedPenStrokeRef,
     textareaValueRef,
     copiedObjects,
     setCopiedObjects,
@@ -191,5 +225,6 @@ export function useBoardTools(canEdit: boolean) {
     setPenStylesOpen,
     linkModalOpen,
     setLinkModalOpen,
+    setSelectionActive,
   }
 }

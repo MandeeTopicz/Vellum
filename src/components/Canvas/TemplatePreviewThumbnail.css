@@ -8,7 +8,8 @@
 }
 
 .template-preview-thumbnail .template-preview-svg {
-  overflow: visible;
+  overflow: hidden;
+  display: block;
 }
 
 .template-preview-text {
@@ -21,6 +22,12 @@
 
 .template-preview-text-small {
   font-size: 5px;
+}
+
+.template-preview-emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  user-select: none;
+  pointer-events: none;
 }
 
 .template-preview-empty {

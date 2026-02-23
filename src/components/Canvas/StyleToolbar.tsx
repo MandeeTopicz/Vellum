@@ -27,10 +27,6 @@ interface StyleToolbarProps {
   canPaste?: boolean
 }
 
-function isRotatable(obj: BoardObject): obj is BoardObject & { rotation?: number } {
-  return 'position' in obj && 'dimensions' in obj
-}
-
 function hasFillColor(obj: BoardObject): obj is BoardObject & { fillColor?: string } {
   return 'fillColor' in obj
 }
@@ -121,8 +117,6 @@ export function StyleToolbar({
   const showFill = hasFillColor(selectedObject)
   const showStrokeStyle = showBorder && selectedObject.type !== 'line'
   const showCornersControl = hasCornerRadius(selectedObject)
-  const rotation = isRotatable(selectedObject) ? (selectedObject.rotation ?? 0) : 0
-  const hasRotation = isRotatable(selectedObject)
 
   const TOOLBAR_WIDTH = 180
   const halfWidth = TOOLBAR_WIDTH / 2
@@ -130,7 +124,7 @@ export function StyleToolbar({
     halfWidth,
     Math.min(position.x, typeof window !== 'undefined' ? window.innerWidth - halfWidth : position.x)
   )
-  const adjustedY = Math.max(80, position.y - 60)
+  const adjustedY = Math.max(80, position.y - 100)
 
   return (
     <div
@@ -531,50 +525,6 @@ export function StyleToolbar({
                 style={{ width: '100%', height: '32px', cursor: 'pointer' }}
               />
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Rotation: numeric input and Reset (for rotatable objects) */}
-      {hasRotation && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <label style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>°</label>
-          <input
-            type="number"
-            min={0}
-            max={360}
-            value={Math.round(rotation)}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10)
-              if (!Number.isNaN(v)) {
-                const normalized = ((v % 360) + 360) % 360
-                onUpdate({ rotation: normalized } as Partial<BoardObject>)
-              }
-            }}
-            style={{
-              width: '44px',
-              padding: '4px 6px',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              fontSize: '13px',
-            }}
-          />
-          {rotation !== 0 && (
-            <button
-              type="button"
-              title="Reset rotation"
-              onClick={() => onUpdate({ rotation: 0 } as Partial<BoardObject>)}
-              style={{
-                padding: '4px 8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                background: 'white',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              Reset
-            </button>
           )}
         </div>
       )}

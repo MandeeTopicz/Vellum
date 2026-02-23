@@ -40,7 +40,7 @@ export function ArrowPreview({ startX, startY, endX, endY, type }: ArrowPreviewP
       const midY = (startY + endY) / 2
       const perpX = -(endY - startY) * 0.2
       const perpY = (endX - startX) * 0.2
-      const sign = type === 'arrow-curved-cw' ? -1 : 1
+      const sign = type === 'arrow-curved-cw' ? 1 : -1
       const controlX = midX + sign * perpX
       const controlY = midY + sign * perpY
       const curvePoints = [startX, startY, controlX, controlY, endX, endY]

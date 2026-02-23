@@ -29,6 +29,7 @@ export const NESTABLE_TYPES = new Set([
   'sticky', 'rectangle', 'circle', 'triangle', 'diamond', 'star', 'pentagon',
   'hexagon', 'octagon', 'arrow', 'plus', 'parallelogram', 'cylinder',
   'tab-shape', 'trapezoid', 'circle-cross', 'text', 'emoji',
+  'image', 'document', 'embed', 'link-card',
 ])
 
 export function isNestableType(type: string): boolean {
@@ -93,14 +94,26 @@ export function getWorldBounds(
     return { left, top, right, bottom }
   }
   if (obj.type === 'pen') {
-    const pen = obj as { points: [number, number][] }
-    if (pen.points.length === 0) return { left: 0, top: 0, right: 0, bottom: 0 }
-    let minX = pen.points[0][0]
-    let minY = pen.points[0][1]
+    const pen = obj as { points?: [number, number][] | number[] }
+    const pts = pen.points ?? []
+    if (pts.length < 2) return { left: 0, top: 0, right: 0, bottom: 0 }
+    const pairs: [number, number][] = Array.isArray(pts[0])
+      ? (pts as [number, number][])
+      : (() => {
+          const flat = pts as number[]
+          const out: [number, number][] = []
+          for (let i = 0; i < flat.length - 1; i += 2) {
+            out.push([flat[i], flat[i + 1]])
+          }
+          return out
+        })()
+    if (pairs.length === 0) return { left: 0, top: 0, right: 0, bottom: 0 }
+    let minX = pairs[0][0]
+    let minY = pairs[0][1]
     let maxX = minX
     let maxY = minY
-    for (let i = 1; i < pen.points.length; i++) {
-      const [x, y] = pen.points[i]
+    for (let i = 1; i < pairs.length; i++) {
+      const [x, y] = pairs[i]
       minX = Math.min(minX, x)
       minY = Math.min(minY, y)
       maxX = Math.max(maxX, x)

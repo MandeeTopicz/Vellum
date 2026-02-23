@@ -47,8 +47,8 @@ const CURSOR_COLORS = [
   '#ec4899',
 ]
 
-/** @internal Derives a consistent color from a string (e.g. userId) */
-function hashToColor(str: string): string {
+/** Derives a consistent color from a string (e.g. userId). Matches cursor color. */
+export function hashToColor(str: string): string {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h << 5) - h + str.charCodeAt(i)
   const idx = Math.abs(h) % CURSOR_COLORS.length
@@ -205,28 +205,32 @@ export function subscribeToCursors(
   const unsub = onValue(
     cursorsRef,
     (snapshot) => {
+      const currentUserId = auth.currentUser?.uid
       const data = snapshot.val()
       if (CURSOR_DEBUG) {
         console.log('[subscribeToCursors] SNAPSHOT received, exists:', snapshot.exists(), 'raw:', data)
       }
-      const cursors: CursorPosition[] = []
-    if (data && typeof data === 'object') {
-      for (const [userId, val] of Object.entries(data)) {
-        const v = val as Record<string, unknown>
-        if (v && typeof v === 'object' && typeof v.x === 'number' && typeof v.y === 'number') {
-          cursors.push({
-            userId,
-            x: v.x as number,
-            y: v.y as number,
-            displayName: (v.displayName as string | null) ?? null,
-            color: (v.color as string) ?? '#888',
-            lastUpdated: typeof v.lastUpdated === 'number' ? v.lastUpdated : undefined,
-          })
+      const allCursors: CursorPosition[] = []
+      if (data && typeof data === 'object') {
+        for (const [userId, val] of Object.entries(data)) {
+          const v = val as Record<string, unknown>
+          if (v && typeof v === 'object' && typeof v.x === 'number' && typeof v.y === 'number') {
+            allCursors.push({
+              userId,
+              x: v.x as number,
+              y: v.y as number,
+              displayName: (v.displayName as string | null) ?? null,
+              color: (v.color as string) ?? '#888',
+              lastUpdated: typeof v.lastUpdated === 'number' ? v.lastUpdated : undefined,
+            })
+          }
         }
       }
-    }
-      if (CURSOR_DEBUG) console.log('[subscribeToCursors] Parsed cursors:', cursors.length, cursors)
-      callback(cursors)
+      const otherCursors = currentUserId
+        ? allCursors.filter((c) => c.userId !== currentUserId)
+        : allCursors
+      if (CURSOR_DEBUG) console.log('[subscribeToCursors] Parsed cursors (own filtered):', otherCursors.length, otherCursors)
+      callback(otherCursors)
     },
     (error) => {
       console.error('[subscribeToCursors] ERROR:', error)

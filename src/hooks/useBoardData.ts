@@ -9,6 +9,8 @@ import {
   updateObject,
   deleteObject,
   restoreObject,
+  batchDeleteObjects,
+  batchRestoreObjects,
   subscribeToObjects,
   objectToFirestoreDoc,
   type ObjectUpdates,
@@ -26,12 +28,19 @@ import { stageToCanvas } from '../utils/coordinates'
 import { throttle } from '../utils/throttle'
 import type { BoardInvite } from '../types'
 
-const CURSOR_THROTTLE_MS = 100
+const CURSOR_THROTTLE_MS = 33
+
+export type BatchUpdateItem = { objectId: string; from: Record<string, unknown>; to: Record<string, unknown> }
 
 export type UndoAction =
   | { type: 'create'; objectId: string; createInput: Parameters<typeof createObject>[1] }
   | { type: 'update'; objectId: string; from: Record<string, unknown>; to: Record<string, unknown> }
+  | { type: 'batchUpdate'; updates: BatchUpdateItem[] }
   | { type: 'delete'; objectId: string; deleted: BoardObject }
+  | {
+      type: 'DELETE_FRAME_WITH_CONTENTS'
+      snapshot: { frame: BoardObject; children: BoardObject[]; connectedLines: BoardObject[] }
+    }
   | { type: 'deleteComment'; commentId: string; deleted: BoardComment }
 
 export interface UseBoardDataParams {
@@ -76,20 +85,33 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
   }))
   const [isZooming, setIsZooming] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const isZoomingRef = useRef(isZooming)
+  const isPanningRef = useRef(isPanning)
+  isZoomingRef.current = isZooming
+  isPanningRef.current = isPanning
 
   const undoStackRef = useRef<UndoAction[]>([])
   const redoStackRef = useRef<UndoAction[]>([])
   const lastDimensionsRef = useRef({ width: 0, height: 0 })
   const hasPushedUndoRef = useRef(false)
+  const [undoStackLength, setUndoStackLength] = useState(0)
+  const [redoStackLength, setRedoStackLength] = useState(0)
+
+  const boardIdRef = useRef(id)
+  boardIdRef.current = id
 
   useEffect(() => {
     if (!id) return
     hasPushedUndoRef.current = false
+    const loadingId = id
     loadUndoStacks(id).then((stacks) => {
+      if (boardIdRef.current !== loadingId) return
       if (!stacks) return
       if (hasPushedUndoRef.current) return
       undoStackRef.current = (stacks.undoStack as UndoAction[]) ?? []
       redoStackRef.current = (stacks.redoStack as UndoAction[]) ?? []
+      setUndoStackLength(undoStackRef.current.length)
+      setRedoStackLength(redoStackRef.current.length)
     })
   }, [id])
 
@@ -206,6 +228,8 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
       hasPushedUndoRef.current = true
       undoStackRef.current = undoStackRef.current.slice(-(MAX_STACK_SIZE - 1)).concat(action)
       redoStackRef.current = []
+      setUndoStackLength(undoStackRef.current.length)
+      setRedoStackLength(0)
       if (id) saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
     },
     [id]
@@ -222,22 +246,53 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
         } else if (action.type === 'update') {
           await updateObject(id, action.objectId, action.from as ObjectUpdates)
           redoStackRef.current.push({ ...action, from: action.to, to: action.from })
+        } else if (action.type === 'batchUpdate') {
+          for (const u of action.updates) {
+            await updateObject(id, u.objectId, u.from as ObjectUpdates)
+          }
+          redoStackRef.current.push({
+            type: 'batchUpdate',
+            updates: action.updates.map((u) => ({ ...u, from: u.to, to: u.from })),
+          })
         } else if (action.type === 'delete') {
           const docData = objectToFirestoreDoc(action.deleted)
           await restoreObject(id, action.objectId, docData)
+          redoStackRef.current.push(action)
+        } else if (action.type === 'DELETE_FRAME_WITH_CONTENTS') {
+          const { frame, children, connectedLines } = action.snapshot
+          const allToRestore = [frame, ...children, ...connectedLines]
+          await batchRestoreObjects(id, allToRestore)
+          setObjects((prev) => {
+            const next = { ...prev }
+            for (const o of allToRestore) {
+              next[o.objectId] = o
+            }
+            return next
+          })
           redoStackRef.current.push(action)
         } else if (action.type === 'deleteComment') {
           const { id: _id, boardId: _boardId, ...docData } = action.deleted
           await restoreComment(id, action.commentId, docData)
           redoStackRef.current.push(action)
         }
+        setUndoStackLength(undoStackRef.current.length)
+        setRedoStackLength(redoStackRef.current.length)
         saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
       } catch (err) {
         console.error('[undo]', err)
-        undoStackRef.current.push(action)
+        const isDocMissing =
+          err instanceof Error &&
+          (err.message?.includes('No document to update') ||
+            (err as { code?: string }).code === 'not-found')
+        if (!isDocMissing) {
+          undoStackRef.current.push(action)
+        }
+        setUndoStackLength(undoStackRef.current.length)
+        setRedoStackLength(redoStackRef.current.length)
+        if (id) saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
       }
     },
-    [id, canEdit]
+    [id, canEdit, setObjects]
   )
 
   const handleRedo = useCallback(async () => {
@@ -250,19 +305,52 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
       } else if (action.type === 'update') {
         await updateObject(id, action.objectId, action.to as ObjectUpdates)
         undoStackRef.current.push({ ...action, from: action.to, to: action.from })
+      } else if (action.type === 'batchUpdate') {
+        for (const u of action.updates) {
+          await updateObject(id, u.objectId, u.to as ObjectUpdates)
+        }
+        undoStackRef.current.push({
+          type: 'batchUpdate',
+          updates: action.updates.map((u) => ({ ...u, from: u.to, to: u.from })),
+        })
       } else if (action.type === 'delete') {
         await deleteObject(id, action.objectId)
+        undoStackRef.current.push(action)
+      } else if (action.type === 'DELETE_FRAME_WITH_CONTENTS') {
+        const { frame, children, connectedLines } = action.snapshot
+        const idsToDelete = [frame.objectId, ...children.map((o) => o.objectId), ...connectedLines.map((o) => o.objectId)]
+        await batchDeleteObjects(id, idsToDelete)
+        setObjects((prev) => {
+          const next = { ...prev }
+          for (const oid of idsToDelete) {
+            delete next[oid]
+          }
+          return next
+        })
         undoStackRef.current.push(action)
       } else if (action.type === 'deleteComment') {
         await deleteComment(id, action.commentId)
         undoStackRef.current.push(action)
       }
+      setUndoStackLength(undoStackRef.current.length)
+      setRedoStackLength(redoStackRef.current.length)
       saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
     } catch (err) {
       console.error('[redo]', err)
-      redoStackRef.current.unshift(action)
+      const isDocMissing =
+        err instanceof Error &&
+        (err.message?.includes('No document to update') ||
+          (err as { code?: string }).code === 'not-found')
+      if (isDocMissing) {
+        /* Target object no longer exists (deleted elsewhere or stale stack) - discard action */
+      } else {
+        redoStackRef.current.unshift(action)
+      }
+      setUndoStackLength(undoStackRef.current.length)
+      setRedoStackLength(redoStackRef.current.length)
+      if (id) saveUndoStacks(id, undoStackRef.current, redoStackRef.current)
     }
-  }, [id, canEdit])
+  }, [id, canEdit, setObjects])
 
   const throttledUpdateCursor = useMemo(
     () => throttle((boardId: string, canvasX: number, canvasY: number) => {
@@ -273,13 +361,17 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
 
   const flushCursorUpdate = useCallback(
     (stageX: number, stageY: number) => {
-      if (isZooming || isPanning || !id) return
+      if (isZoomingRef.current || isPanningRef.current || !id) return
       const v = viewportRef.current
       const canvas = stageToCanvas(stageX, stageY, v)
       throttledUpdateCursor(id, canvas.x, canvas.y)
     },
-    [id, isZooming, isPanning, throttledUpdateCursor]
+    [id, throttledUpdateCursor]
   )
+
+  /** Undo/redo are independent of tool selection; history reflects edit order only */
+  const canUndo = canEdit && undoStackLength > 0
+  const canRedo = canEdit && redoStackLength > 0
 
   return {
     id,
@@ -291,6 +383,8 @@ export function useBoardData({ boardId, user }: UseBoardDataParams) {
     loading,
     accessDenied,
     canEdit,
+    canUndo,
+    canRedo,
     pendingInvite,
     viewport,
     setViewport,

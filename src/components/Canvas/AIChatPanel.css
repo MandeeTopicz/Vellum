@@ -257,3 +257,31 @@
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
+/* Right-click context menu */
+.ai-chat-context-menu {
+  position: fixed;
+  z-index: 10001;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  min-width: 120px;
+}
+
+.ai-chat-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1f2937;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ai-chat-context-menu-item:hover {
+  background: #f3f4f6;
+}
+

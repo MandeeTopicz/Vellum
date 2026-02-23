@@ -6,6 +6,8 @@ import textIcon from '../../assets/text-icon.png'
 import shapesIcon from '../../assets/shapes-icon.png'
 import emojiIcon from '../../assets/emoji-icon.png'
 import commentIcon from '../../assets/comment-icon.png'
+import linkIcon from '../../assets/link-icon.png'
+import lassoIcon from '../../assets/lasso-icon.png'
 import redoIcon from '../../assets/redo-icon.png'
 import undoIcon from '../../assets/undo-icon.png'
 import pencilIcon from '../../assets/pencil-icon.png'
@@ -39,9 +41,11 @@ export type ShapeTool =
 
 export type WhiteboardTool =
   | 'pointer'
+  | 'lasso'
   | 'sticky'
   | 'text'
   | ShapeTool
+  | 'connector'
   | 'pen'
   | 'highlighter'
   | 'eraser'
@@ -50,26 +54,40 @@ export type WhiteboardTool =
 
 interface WhiteboardToolbarProps {
   activeTool: WhiteboardTool
+  /** When connector mode: which connector subtype is selected (for shape grid highlight) */
+  activeConnectorType?: string
   onToolSelect: (tool: WhiteboardTool) => void
   onEmojiSelect?: (emoji: string) => void
   onUndo?: () => void
   onRedo?: () => void
+  /** Undo/redo stay enabled based on history only; independent of tool selection */
+  canUndo?: boolean
+  canRedo?: boolean
   canEdit: boolean
   /** Opens Templates modal and deselects active tool */
   onTemplatesClick?: () => void
   /** Called when pen dropdown is opened (to reopen styling panel) */
   onPenDropdownOpen?: () => void
+  /** Called when Link button is clicked (add link or upload file to selection) */
+  onLinkClick?: () => void
+  /** Whether any object is selected (link button disabled when false) */
+  hasSelection?: boolean
 }
 
 export default function WhiteboardToolbar({
   activeTool,
+  activeConnectorType = 'arrow-straight',
   onToolSelect,
   onEmojiSelect,
   onUndo,
   onRedo,
+  canUndo = false,
+  canRedo = false,
   canEdit,
   onTemplatesClick,
   onPenDropdownOpen,
+  onLinkClick,
+  hasSelection: _hasSelection = false,
 }: WhiteboardToolbarProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shapesOpen, setShapesOpen] = useState(false)
@@ -148,7 +166,10 @@ export default function WhiteboardToolbar({
   const isShapeTool = (t: WhiteboardTool): t is ShapeTool => allShapeTypes.includes(t)
 
   return (
-    <div className="whiteboard-toolbar">
+    <div
+      className="whiteboard-toolbar"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
         className={`toolbar-icon-btn ${activeTool === 'pointer' ? 'active' : ''}`}
@@ -235,7 +256,7 @@ export default function WhiteboardToolbar({
                     <button
                       key={shape.type}
                       type="button"
-                      className={`shape-button ${activeTool === shape.type ? 'active' : ''}`}
+                      className={`shape-button ${activeTool === shape.type || (activeTool === 'connector' && activeConnectorType === shape.type) ? 'active' : ''}`}
                       onClick={() => {
                         onToolSelect(
                           shape.type as WhiteboardTool
@@ -261,7 +282,7 @@ export default function WhiteboardToolbar({
           onClick={() => {
             closeAllDropdowns()
             setPenOpen((v) => {
-              if (!v) onPenDropdownOpen?.()
+              if (!v) queueMicrotask(() => onPenDropdownOpen?.())
               return !v
             })
           }}
@@ -305,6 +326,19 @@ export default function WhiteboardToolbar({
           </div>
         )}
       </div>
+
+      <button
+        type="button"
+        className={`toolbar-icon-btn ${activeTool === 'lasso' ? 'active' : ''}`}
+        onClick={() => {
+          closeAllDropdowns()
+          onToolSelect(activeTool === 'lasso' ? 'pointer' : 'lasso')
+        }}
+        disabled={!canEdit}
+        title="Lasso Select (L)"
+      >
+        <img src={lassoIcon} alt="Lasso Select" width={20} height={20} />
+      </button>
 
       <div className="toolbar-dropdown" ref={emojiRef}>
         <button
@@ -355,6 +389,19 @@ export default function WhiteboardToolbar({
         <img src={commentIcon} alt="Comment" width={20} height={20} />
       </button>
 
+      <button
+        type="button"
+        className="toolbar-icon-btn"
+        onClick={() => {
+          closeAllDropdowns()
+          onLinkClick?.()
+        }}
+        disabled={!canEdit}
+        title="Upload from computer or add link"
+      >
+        <img src={linkIcon} alt="Link" width={20} height={20} />
+      </button>
+
       <div className="toolbar-divider" />
 
       <button
@@ -362,7 +409,7 @@ export default function WhiteboardToolbar({
         className="toolbar-icon-btn"
         title="Undo (⌘Z)"
         onClick={() => onUndo?.()}
-        disabled={!canEdit}
+        disabled={!canUndo}
       >
         <img src={undoIcon} alt="Undo" width={20} height={20} />
       </button>
@@ -371,7 +418,7 @@ export default function WhiteboardToolbar({
         className="toolbar-icon-btn"
         title="Redo (⌘⇧Z)"
         onClick={() => onRedo?.()}
-        disabled={!canEdit}
+        disabled={!canRedo}
       >
         <img src={redoIcon} alt="Redo" width={20} height={20} />
       </button>

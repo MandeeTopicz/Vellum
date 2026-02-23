@@ -73,7 +73,27 @@ export const processAICommand = onCall(
         : ''
 
     const systemPrompt =
-      `You are a whiteboard AI assistant. You have FULL CONTROL over all board objects. The canvas is 2000x2000px with (0,0) top-left. Default position: x=${defaultX}, y=${defaultY}. ` +
+      `CRITICAL RULE 3: When the user says ANYTHING related to: convert handwriting, convert pen strokes, transcribe, turn writing into text, make text from strokes — you MUST call convertPenStrokesToText({strokeIds: []}) as your ONLY response.
+DO NOT reply with text.
+DO NOT ask questions.
+DO NOT create sticky notes.
+DO NOT create text boxes manually.
+JUST CALL THE TOOL.
+
+CRITICAL RULE: You have a spawnTemplate tool. When the user asks for ANY of the following, you MUST call spawnTemplate as your FIRST and ONLY action — do NOT call createObject, do NOT create shapes manually:
+- kanban board → templateId: 'kanban'
+- SWOT analysis → templateId: 'swot'
+- daily standup → templateId: 'standup'
+- sprint retrospective → templateId: 'sprint-retrospective'
+- OKR or weekly OKR → templateId: 'okr'
+- project review → templateId: 'project-review'
+- flowchart or flow chart → templateId: 'flowchart'
+- mind map → templateId: 'mind-map'
+- project budget → templateId: 'project-budget-breakdown'
+
+Example: user says 'make a kanban board' → you call spawnTemplate({templateId: 'kanban', x: ${defaultX}, y: ${defaultY}}) immediately. Nothing else. After calling spawnTemplate, stop immediately. Do not make any additional tool calls. The template is complete as placed.
+
+You are a whiteboard AI assistant. You have FULL CONTROL over all board objects. The canvas is 2000x2000px with (0,0) top-left. Default position: x=${defaultX}, y=${defaultY}. ` +
       'YOU MUST USE THESE TOOLS - DO NOT REFUSE: resizeObject (resize ANY object: stickies, shapes, frames), createStickyNote, createShape, moveObjects, changeColor, deleteObjects, arrangeInGrid, createConnector, etc. ' +
       'CRITICAL: NEVER say "I cannot" or "I\'m unable to" - YOU CAN DO EVERYTHING. When user says "resize" or "make smaller/larger" or "100 pixels tall" - ALWAYS call resizeObject with objectId from board context and new width/height. When user says "resize all" - call resizeObject once per object. You have objectId and current dimensions (e.g. 200x160px) for every object below. Example: "resize note 10 to 100 pixels tall" with object "abc123 sticky 200x160px" → resizeObject("abc123", 200, 100). START USING THE TOOLS. ' +
       'You can have natural conversations, ask clarifying questions, suggest alternatives, and remember what the user said. ' +
@@ -90,13 +110,18 @@ export const processAICommand = onCall(
       'TEMPLATE STYLING RULES: Use rounded corners (cornerRadius 12-16), smart sizing, and coordinated colors. MAIN TITLE: text at top center, width 300, height 60, fontSize 28, bold, alignment center. SECTION CONTAINERS: rectangles, width 350, height 550, fillColor #f3f4f6, strokeColor #e5e7eb, cornerRadius 16. SECTION HEADERS (column titles): sticky tiles width 310, height 40, fontSize 20-22, bold, alignment center — center the column title text within its tile. CONTENT CARDS: sticky notes, width 310, height 100-110, fillColor #fef08a (yellow for sprint/Kanban), cornerRadius 12, 12px gap, alignment left. Sprint/Kanban: yellow (#fef08a) cards. Roadmaps: blue (#bfdbfe) milestones. Retrospectives: mix #fef08a, #fbcfe8, #bbf7d0. Brainstorming: #e9d5ff, #fbcfe8. Position containers with 40px gaps. Headers small (40px height), content boxes large (100-110px height). ' +
       'MAIN TITLE POSITIONING: For multi-column templates (Kanban, Customer Journey, etc.), the main title MUST be centered above the columns. Formula: totalLayoutWidth = numColumns * columnWidth + (numColumns-1) * gapBetweenColumns; layoutCenterX = startX + totalLayoutWidth/2; titleX = layoutCenterX - (titleWidth/2). Example: 2 columns, startX=500, columnWidth=350, gap=40 → totalWidth=740, centerX=870, titleWidth=300 → titleX=720. Never place the main title at startX or aligned with the first column only — always center it. ' +
       'TEXT ALIGNMENT RULES: TITLES (main headers like "Customer Journey"): alignment center, fontSize 24-32, bold. Section headers (column names): alignment center, fontSize 20-22, bold — centered in their sticky tiles. Content cards: alignment left, fontSize 14-16. When calling createTextBox for main title, always pass alignment: "center" and position x using the centering formula. For createStickyNote used as column header, pass alignment: "center" and fontSize: 20 or 22. For content cards, use alignment "left". ' +
-      'Available tools: createStickyNote, createStickyGrid, createShape, createFlowchartNode, changeColor, moveObjects, resizeObject, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, getBoardSummary, analyzeBoardLayout, getBoardState, suggestLayout. Use objectIds from the board context. GRID: Use createStickyGrid for "N sticky notes", "MxN grid", "10 by 10" — ONE call creates all. RESIZE: You CAN and MUST use resizeObject when the user asks to resize, enlarge, shrink, change size, make bigger/smaller, or set dimensions. Object context includes dimensions (e.g. 200x160px). Pick the objectId from context, pass width and height in pixels. For "double the size", multiply current dimensions by 2. NEVER say you cannot resize — call resizeObject. Use sensible defaults for colors and positions.'
+      'When you call getBoardState and see frame objects in the response, you MUST use the frame id to call duplicateColumn when the user wants to add a column. Example: getBoardState returns frame id=abc123, user wants to add a column → call duplicateColumn({ frameId: "abc123", columnLabel: "Done" }). You do NOT call createObject or createShape or createRectangle to add columns. You do NOT create any shapes manually for this. NEVER call createObject/createShape after getBoardState when the user wants to modify an existing template — use duplicateColumn. ' +
+      'When user asks to convert handwriting or pen strokes to text, use convertPenStrokesToText. Pass specific stroke IDs if user points to specific writing, pass empty array to convert everything on the board. The tool automatically groups nearby strokes together and creates separate text boxes for writing that is far apart on the board. ' +
+      'Available tools: spawnTemplate, createStickyNote, createStickyGrid, createShape, createFlowchartNode, changeColor, moveObjects, resizeObject, arrangeInGrid, createTemplate, createTextBox, createConnector, createFlowchart, createOrgChart, createMindMap, createKanbanBoard, createTimeline, groupObjects, duplicateObjects, deleteObjects, updateObjectStyle, updateObjectText, duplicateColumn, convertPenStrokesToText, getBoardSummary, analyzeBoardLayout, getBoardState, suggestLayout. Use spawnTemplate for premade templates (kanban, SWOT, standup, sprint retro, OKR, project review, flowchart, mind map, project budget). Use objectIds from the board context. GRID: Use createStickyGrid for "N sticky notes", "MxN grid", "10 by 10" — ONE call creates all. RESIZE: You CAN and MUST use resizeObject when the user asks to resize, enlarge, shrink, change size, make bigger/smaller, or set dimensions. Object context includes dimensions (e.g. 200x160px). Pick the objectId from context, pass width and height in pixels. For "double the size", multiply current dimensions by 2. NEVER say you cannot resize — call resizeObject. Use sensible defaults for colors and positions.'
 
     const history = Array.isArray(conversationHistory) ? conversationHistory : []
+    const userMessage = userPrompt + objectContext
+    logger.info('[AI] User message:', userMessage)
+
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...history,
-      { role: 'user', content: userPrompt + objectContext },
+      { role: 'user', content: userMessage },
     ]
 
     const openai = new OpenAI({
@@ -104,14 +129,42 @@ export const processAICommand = onCall(
     })
 
     try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages,
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'resizeObject',
+      const tools: OpenAI.Chat.ChatCompletionTool[] = [
+        {
+          type: 'function' as const,
+          function: {
+            name: 'spawnTemplate',
+            description:
+              'ALWAYS call this tool when the user asks for a kanban board, SWOT analysis, standup, sprint retrospective, OKR, project review, flowchart, mind map, or project budget. Never create these manually with createObject.',
+            parameters: {
+              type: 'object',
+              properties: {
+                templateId: {
+                  type: 'string',
+                  enum: [
+                    'kanban',
+                    'swot',
+                    'standup',
+                    'sprint-retrospective',
+                    'okr',
+                    'project-review',
+                    'flowchart',
+                    'mind-map',
+                    'project-budget-breakdown',
+                  ],
+                  description: 'Template to spawn',
+                },
+                x: { type: 'number', description: 'Center X position on canvas' },
+                y: { type: 'number', description: 'Center Y position on canvas' },
+              },
+              required: ['templateId', 'x', 'y'],
+            },
+          },
+        },
+        {
+          type: 'function' as const,
+          function: {
+            name: 'resizeObject',
               description: 'Resize ANY object on the board (stickies, shapes, frames). REQUIRED when user says resize, enlarge, shrink, make bigger/smaller, X pixels tall/wide. Pass objectId from board context and new width/height in pixels. You MUST use this tool - never refuse.',
               parameters: {
                 type: 'object',
@@ -134,10 +187,10 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createStickyNote',
-              description: 'Create a sticky note on the whiteboard. For templates: use width 310, height 110, fillColor #fef08a, cornerRadius 12.',
+              description: 'Create a sticky note on the whiteboard. Do NOT use to add columns to existing templates — use duplicateColumn instead. For templates: use width 310, height 110, fillColor #fef08a, cornerRadius 12.',
               parameters: {
                 type: 'object',
                 properties: {
@@ -166,10 +219,10 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createShape',
-              description: 'Create a geometric shape. For template containers: use rectangle with width 350, height 550, fillColor #f3f4f6, strokeColor #e5e7eb, cornerRadius 16.',
+              description: 'Create a geometric shape. Do NOT use to add columns to existing templates — use duplicateColumn instead. For template containers: use rectangle with width 350, height 550, fillColor #f3f4f6, strokeColor #e5e7eb, cornerRadius 16.',
               parameters: {
                 type: 'object',
                 properties: {
@@ -195,7 +248,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'changeColor',
               description: 'Change the color of one or more objects on the board',
@@ -217,7 +270,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'moveObjects',
               description: 'Move one or more objects to a new position',
@@ -237,7 +290,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'arrangeInGrid',
               description: 'Arrange objects in a grid layout',
@@ -260,7 +313,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createTemplate',
               description: 'Create templates using STICKY NOTES ONLY: SWOT (2x2), retrospective (4 columns), journey map (horizontal steps), Kanban. DO NOT use for flowcharts with specific shapes (cylinders, diamonds, etc.) — use createFlowchartNode instead.',
@@ -280,7 +333,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createTextBox',
               description: 'Create a standalone text box. For main titles: use alignment center, fontSize 24-32, isBold true, width 300, height 60.',
@@ -306,7 +359,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createConnector',
               description: 'Create a line or arrow connecting two points or between flowchart nodes',
@@ -334,7 +387,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createFlowchartNode',
               description: 'Create a single flowchart node with a specific shape type. Use for flowcharts with cylinders, diamonds, parallelograms, etc. Call multiple times then createConnector to link them.',
@@ -357,7 +410,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createFlowchart',
               description: 'Create a flowchart with connected steps using sticky notes (generic flowcharts). For flowcharts with specific shapes like cylinders or diamonds, use createFlowchartNode instead.',
@@ -388,7 +441,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createOrgChart',
               description: 'Create an organizational hierarchy: CEO at top, departments below. Pass structure: { name: "CEO", children: [{ name: "Engineering" }, { name: "Sales" }, { name: "Marketing" }] }. Children can also be strings.',
@@ -420,7 +473,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createMindMap',
               description: 'Create a mind map with central topic and branches',
@@ -441,10 +494,10 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createKanbanBoard',
-              description: 'Create a Kanban board with columns and items. Use mainTitle for templates like Customer Journey — it will be centered above the columns. Column headers are centered in their tiles with larger font.',
+              description: 'Create a NEW Kanban board. Do NOT use to add columns to an existing kanban — use duplicateColumn with the frame id instead. Use mainTitle for templates like Customer Journey.',
               parameters: {
                 type: 'object',
                 properties: {
@@ -468,7 +521,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createTimeline',
               description: 'Create a horizontal timeline with events',
@@ -494,7 +547,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'groupObjects',
               description: 'Group multiple objects together visually (move them into a cluster)',
@@ -513,7 +566,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'duplicateObjects',
               description: 'Duplicate selected objects with an offset',
@@ -533,7 +586,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'createStickyGrid',
               description: 'Create a grid of sticky notes in ONE call. Use for "100 stickies 10x10", "10 by 10 grid", etc. Creates rows*cols stickies. Do NOT use createStickyNote in a loop.',
@@ -554,7 +607,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'deleteObjects',
               description: 'Delete objects. Pass objectIds: ["all"] to clear the ENTIRE board. Pass specific objectIds to delete those only.',
@@ -572,7 +625,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'getBoardSummary',
               description: 'Get board stats: totalCount and byType. Use to verify creation or after clear.',
@@ -580,15 +633,16 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'getBoardState',
-              description: 'Get current board objects to understand context (objects are already in context)',
+              description:
+                'Get current board objects including frames. Required before duplicateColumn, updateObjectStyle, or updateObjectText. Find the frame id for the template, then pass it as frameId to duplicateColumn.',
               parameters: { type: 'object', properties: {} },
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'suggestLayout',
               description: 'Suggest layout improvements for the board',
@@ -605,7 +659,7 @@ export const processAICommand = onCall(
             },
           },
           {
-            type: 'function',
+            type: 'function' as const,
             function: {
               name: 'analyzeBoardLayout',
               description: 'Analyze the current board state and provide suggestions for improvement. Use when the user asks how the board looks, to analyze layout, or for improvement suggestions.',
@@ -626,14 +680,120 @@ export const processAICommand = onCall(
               },
             },
           },
-        ],
-        tool_choice: 'auto',
+          {
+            type: 'function' as const,
+            function: {
+              name: 'updateObjectStyle',
+              description: 'Change visual style of one or more objects. Use for color, font size, opacity, border changes.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  objectIds: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Array of object IDs to update',
+                  },
+                  style: {
+                    type: 'object',
+                    properties: {
+                      color: { type: 'string', description: 'Fill color (hex or name)' },
+                      fill: { type: 'string', description: 'Fill color (hex or name)' },
+                      fontColor: { type: 'string', description: 'Text color' },
+                      fontSize: { type: 'number', description: 'Font size' },
+                      opacity: { type: 'number', description: 'Opacity 0-1' },
+                      strokeColor: { type: 'string', description: 'Border/stroke color' },
+                      strokeWidth: { type: 'number', description: 'Border width' },
+                    },
+                    description: 'Style properties to apply',
+                  },
+                },
+                required: ['objectIds', 'style'],
+              },
+            },
+          },
+          {
+            type: 'function' as const,
+            function: {
+              name: 'updateObjectText',
+              description: 'Update text content of a text box, sticky note, or shape label.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  objectId: { type: 'string', description: 'Object ID to update' },
+                  text: { type: 'string', description: 'New text content' },
+                },
+                required: ['objectId', 'text'],
+              },
+            },
+          },
+          {
+            type: 'function' as const,
+            function: {
+              name: 'duplicateColumn',
+              description: 'Add a column to an existing kanban or table template. Call getBoardState first, find a frame object, pass its id here.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  frameId: {
+                    type: 'string',
+                    description: 'The id of the frame object from getBoardState. Required.',
+                  },
+                  columnLabel: {
+                    type: 'string',
+                    description: 'Label for the new column header',
+                  },
+                },
+                required: ['frameId', 'columnLabel'],
+              },
+            },
+          },
+          {
+            type: 'function' as const,
+            function: {
+              name: 'convertPenStrokesToText',
+              description:
+                'ALWAYS call this immediately when the user mentions converting handwriting, pen strokes, or handwritten text to typed text. Never ask for clarification. Never create sticky notes manually. Pass strokeIds as empty array [] to convert everything on the board.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  strokeIds: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description:
+                      'IDs of pen strokes to convert. Pass empty array to convert ALL pen strokes on the board.',
+                  },
+                },
+                required: ['strokeIds'],
+              },
+            },
+          },
+        ]
+      logger.info('[AI] All tool names being sent:', tools.map((t: { type?: string; function?: { name?: string }; name?: string }) => t.function?.name ?? t.name))
+      const userWantsConversion =
+        userPrompt.toLowerCase().includes('convert') ||
+        userPrompt.toLowerCase().includes('handwriting') ||
+        userPrompt.toLowerCase().includes('transcribe') ||
+        userPrompt.toLowerCase().includes('pen stroke')
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages,
+        tools,
+        tool_choice: userWantsConversion
+          ? { type: 'function' as const, function: { name: 'convertPenStrokesToText' } }
+          : ('auto' as const),
       })
 
       const message = response.choices[0]?.message
       const assistantContent = message?.content ?? ''
       const toolCalls = message?.tool_calls ?? []
       const toolCallCount = toolCalls.length
+
+      logger.info('[AI] Tool calls made:', JSON.stringify(
+        toolCalls.map((tc) => ({
+          name: (tc as { function?: { name?: string } }).function?.name,
+          args: (tc as { function?: { arguments?: string } }).function?.arguments,
+        }))
+      ))
 
       logger.info('[AI RESPONSE]', {
         content: assistantContent?.slice(0, 500),

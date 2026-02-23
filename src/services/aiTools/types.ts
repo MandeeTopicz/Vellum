@@ -11,6 +11,10 @@ export interface ToolExecutionContext {
   objectsList: BoardObject[]
   createdItems: { objectId: string; createInput: CreateObjectInput }[]
   actions: string[]
+  /** Viewport center in canvas coords; used for non-overlapping placement */
+  viewportCenter?: { x: number; y: number }
+  /** When true, skip wrapping createdItems in a frame (e.g. spawnTemplate already provides a frame) */
+  skipWrap?: boolean
 }
 
 export type ToolHandler = (ctx: ToolExecutionContext) => Promise<void>

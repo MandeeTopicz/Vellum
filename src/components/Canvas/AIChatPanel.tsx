@@ -31,6 +31,7 @@ export default function AIChatPanel({ isOpen, onClose, onSendMessage, onClearCon
   const [inputValue, setInputValue] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -106,6 +107,33 @@ export default function AIChatPanel({ isOpen, onClose, onSendMessage, onClearCon
     onClearConversation?.()
   }
 
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent, content: string) => {
+    e.preventDefault()
+    if (!content || content === 'Thinking...') return
+    setContextMenu({ x: e.clientX, y: e.clientY, text: content })
+  }, [])
+
+  const handleCopyFromMenu = useCallback(async () => {
+    if (!contextMenu?.text) return
+    try {
+      await navigator.clipboard.writeText(contextMenu.text)
+    } catch {
+      /* clipboard API not available */
+    }
+    setContextMenu(null)
+  }, [contextMenu?.text])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    document.addEventListener('click', close)
+    document.addEventListener('contextmenu', close)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('contextmenu', close)
+    }
+  }, [contextMenu])
+
   const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
   if (!isOpen) return null
@@ -152,6 +180,7 @@ export default function AIChatPanel({ isOpen, onClose, onSendMessage, onClearCon
                   key={msg.id}
                   className={`chat-message ${msg.role === 'user' ? 'message-user' : 'message-assistant'} ${msg.status === 'error' ? 'message-error' : ''}`}
                   title={formatTime(msg.timestamp)}
+                  onContextMenu={(e) => handleMessageContextMenu(e, msg.status === 'pending' ? '' : msg.content)}
                 >
                   {msg.status === 'pending' && (
                     <span className="chat-typing-dots">
@@ -188,6 +217,18 @@ export default function AIChatPanel({ isOpen, onClose, onSendMessage, onClearCon
           </>
         )}
       </div>
+
+      {contextMenu && (
+        <div
+          className="ai-chat-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type="button" className="ai-chat-context-menu-item" onClick={handleCopyFromMenu}>
+            Copy
+          </button>
+        </div>
+      )}
     </>
   )
 }

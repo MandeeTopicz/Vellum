@@ -18,9 +18,13 @@ import { executeCreateMindMap } from './createMindMap'
 import { executeCreateKanbanBoard } from './createKanbanBoard'
 import { executeCreateTimeline } from './createTimeline'
 import { executeCreateStickyGrid } from './createStickyGrid'
+import { executeSpawnTemplate } from './spawnTemplate'
 
-export { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline, executeCreateStickyGrid }
+export { executeCreateKanbanBoard, executeCreateFlowchart, executeCreateMindMap, executeCreateTimeline, executeCreateStickyGrid, executeSpawnTemplate }
 import { executeDuplicateObjects } from './duplicateObjects'
+import { executeUpdateObjectStyle, executeUpdateObjectText } from './updateObjectModify'
+import { executeDuplicateColumn } from './duplicateColumn'
+import { executeConvertPenStrokesToText } from './convertPenStrokesToText'
 import type { ToolHandler } from './types'
 
 /** Map of tool name to handler */
@@ -43,9 +47,14 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   createKanbanBoard: executeCreateKanbanBoard,
   createTimeline: executeCreateTimeline,
   createStickyGrid: executeCreateStickyGrid,
+  spawnTemplate: executeSpawnTemplate,
   duplicateObjects: executeDuplicateObjects,
   getBoardState: executeGetBoardState,
   getBoardSummary: executeGetBoardSummary,
   suggestLayout: executeSuggestLayout,
   analyzeBoardLayout: executeAnalyzeBoardLayout,
+  updateObjectStyle: executeUpdateObjectStyle,
+  updateObjectText: executeUpdateObjectText,
+  duplicateColumn: executeDuplicateColumn,
+  convertPenStrokesToText: executeConvertPenStrokesToText,
 }

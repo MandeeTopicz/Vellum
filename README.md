@@ -86,6 +86,30 @@ firebase functions:secrets:set OPENAI_API_KEY
 firebase deploy --only functions
 ```
 
+**API function (handwriting, auth-test):** To deploy only the HTTP API:
+
+```bash
+firebase deploy --only functions:api
+```
+
+**Google Sign-In (production):** If you see `redirect_uri_mismatch`:
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web client).
+2. **Authorized redirect URIs:** Add `https://vellum-6f172.firebaseapp.com/__/auth/handler`.
+3. **Authorized JavaScript origins:** Add `https://vellum-6f172.web.app` and `https://vellum-6f172.firebaseapp.com`.
+
+**Firebase Storage CORS (file upload from localhost):** If uploads fail with "blocked by CORS policy", apply CORS to the Storage bucket:
+
+1. Install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (includes `gsutil`).
+2. Authenticate: `gcloud auth login`.
+3. Set the project: `gcloud config set project vellum-6f172`.
+4. Find your bucket name (check `.env.local` for `VITE_FIREBASE_STORAGE_BUCKET`, or run `gcloud storage buckets list --project=vellum-6f172`).
+5. Apply CORS (use the bucket from step 4; newer projects use `firebasestorage.app`):
+   ```bash
+   gsutil cors set storage.cors.json gs://vellum-6f172.firebasestorage.app
+   ```
+   If that fails with 404, try the legacy bucket: `gs://vellum-6f172.appspot.com`
+
 ---
 
 ## Architecture

@@ -12,22 +12,35 @@ import {
   useShapeTransform,
   boundBoxFunc,
   MIN_SIZE,
+  areShapePropsEqual,
 } from './shared'
+import React from 'react'
 
 interface TriangleShapeProps extends BaseShapeProps {
   obj: TriangleObject
 }
 
-export function TriangleShape({
+function TriangleShapeInner({
   obj,
-  viewport,
+  viewportRef,
   canEdit,
   selected,
   isPointerTool,
+  isSelecting = false,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   displayPosition,
+  selectedIds,
+  multiDragStartPositionsRef,
+  multiDragStartPointerRef,
+  dragPreviewPosition,
+  onMultiDragStart,
+  onMultiDragMove,
+  connectorToolActive,
+  onConnectorHover,
+  isPenStrokeActive,
 }: TriangleShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
@@ -71,20 +84,27 @@ export function TriangleShape({
 
   const handlers = shapeHandlers(
     obj.objectId,
-    viewport,
+    viewportRef,
     canEdit,
     selected,
     onObjectDragEnd,
     onObjectClick,
-    isPointerTool
+    isPointerTool,
+    isSelecting,
+    {
+      ...(selectedIds && multiDragStartPositionsRef && onMultiDragStart && onMultiDragMove ? { selectedIds, multiDragStartPositionsRef, multiDragStartPointerRef, onMultiDragStart, onMultiDragMove } : {}),
+      ...(onObjectDragStart && { onObjectDragStart }),
+      ...(connectorToolActive && onConnectorHover && { connectorToolActive, onConnectorHover }),
+      isPenStrokeActive,
+    }
   )
 
   return (
     <>
       <Group
         ref={groupRef}
-        x={pos.x}
-        y={pos.y}
+        x={dragPreviewPosition?.x ?? pos.x}
+        y={dragPreviewPosition?.y ?? pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
@@ -92,16 +112,18 @@ export function TriangleShape({
         <Line
           points={points}
           fill={obj.fillColor ?? 'transparent'}
-          stroke={selected ? '#8093F1' : (obj.strokeColor ?? '#000000')}
-          strokeWidth={selected ? 3 : (obj.strokeWidth ?? 2)}
+          stroke={selected && isPointerTool ? '#8093F1' : (obj.strokeColor ?? '#000000')}
+          strokeWidth={selected && isPointerTool ? 3 : (obj.strokeWidth ?? 2)}
           dash={dash}
           closed
           perfectDrawEnabled={false}
         />
       </Group>
-      {selected && hasResizeHandler && canEdit && (
+      {selected && isPointerTool && hasResizeHandler && canEdit && (
         <Transformer ref={trRef} rotateEnabled={false} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )
 }
+
+export const TriangleShape = React.memo(TriangleShapeInner, areShapePropsEqual)

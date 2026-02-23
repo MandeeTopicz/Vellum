@@ -1,0 +1,138 @@
+.link-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10002;
+}
+
+.link-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+  padding: 20px;
+  min-width: 360px;
+  max-width: 90vw;
+}
+
+.link-modal h3 {
+  margin: 0 0 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.link-modal-section {
+  margin-bottom: 12px;
+}
+
+.link-modal-section label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.link-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.link-modal-input:focus {
+  outline: none;
+  border-color: #8093F1;
+}
+
+.link-modal-divider {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin: 12px 0;
+}
+
+.link-modal-file-input {
+  display: none;
+}
+
+.link-modal-file-label {
+  display: block;
+}
+
+.link-modal-upload-btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+  font-family: inherit;
+}
+
+.link-modal-upload-btn:hover:not(.disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.link-modal-upload-btn.disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.link-modal-error {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: #dc2626;
+}
+
+.link-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.link-btn-cancel {
+  padding: 8px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+}
+
+.link-btn-cancel:hover {
+  background: #f9fafb;
+}
+
+.link-btn-apply {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #8093F1;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.link-btn-apply:hover:not(:disabled) {
+  background: #6b7ee8;
+}
+
+.link-btn-apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

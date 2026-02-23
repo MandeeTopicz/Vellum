@@ -3,6 +3,7 @@
  */
 import { createObject } from '../objects'
 import { DEFAULT_TEXT_STYLE } from '../../types'
+import { getAdjustedPosition } from './shared'
 import type { ToolExecutionContext } from './types'
 
 /** createKanbanBoard */
@@ -10,8 +11,8 @@ export async function executeCreateKanbanBoard(ctx: ToolExecutionContext): Promi
   const { boardId, args, createdItems, actions } = ctx
   const columns = Array.isArray(args.columns) ? args.columns : []
   const mainTitle = typeof args.mainTitle === 'string' ? args.mainTitle : ''
-  const startX = typeof args.startX === 'number' ? args.startX : 50
-  const startY = typeof args.startY === 'number' ? args.startY : 150
+  let startX = typeof args.startX === 'number' ? args.startX : 50
+  let startY = typeof args.startY === 'number' ? args.startY : 150
   const containerW = 350
   const containerH = 550
   const headerH = 40
@@ -22,6 +23,14 @@ export async function executeCreateKanbanBoard(ctx: ToolExecutionContext): Promi
   const padding = 20
   const titleH = 60
   const titleW = 300
+
+  const layoutW = columns.length * containerW + Math.max(0, columns.length - 1) * containerGap
+  const titleOffset = mainTitle ? titleH + 24 : 0
+  const layoutH = containerH + titleOffset
+  const intendedTop = startY - titleOffset
+  const adjusted = getAdjustedPosition(ctx, startX, intendedTop, layoutW, layoutH)
+  startX = adjusted.x
+  startY = adjusted.y + titleOffset
 
   if (mainTitle) {
     const totalLayoutWidth = columns.length * containerW + Math.max(0, columns.length - 1) * containerGap

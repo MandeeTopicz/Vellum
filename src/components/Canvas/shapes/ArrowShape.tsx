@@ -12,7 +12,9 @@ import {
   useShapeTransform,
   boundBoxFunc,
   MIN_SIZE,
+  areShapePropsEqual,
 } from './shared'
+import React from 'react'
 
 const PATH_DATA_LEFT = 'M8 12 L2 12 L6 8 L6 10 L20 10 L20 14 L6 14 L6 16 Z'
 const PATH_DATA_RIGHT = 'M16 12 L22 12 L18 8 L18 10 L4 10 L4 14 L18 14 L18 16 Z'
@@ -21,16 +23,27 @@ interface ArrowShapeProps extends BaseShapeProps {
   obj: ArrowObject
 }
 
-export function ArrowShape({
+function ArrowShapeInner({
   obj,
-  viewport,
+  viewportRef,
   canEdit,
   selected,
   isPointerTool,
+  isSelecting = false,
   onObjectDragEnd,
+  onObjectDragStart,
   onObjectClick,
   onObjectResizeEnd,
   displayPosition,
+  selectedIds,
+  multiDragStartPositionsRef,
+  multiDragStartPointerRef,
+  dragPreviewPosition,
+  onMultiDragStart: _onMultiDragStart,
+  onMultiDragMove: _onMultiDragMove,
+  connectorToolActive,
+  onConnectorHover,
+  isPenStrokeActive,
 }: ArrowShapeProps) {
   const groupRef = useRef<Konva.Group>(null)
   const trRef = useRef<Konva.Transformer>(null)
@@ -40,8 +53,8 @@ export function ArrowShape({
   const h = obj.dimensions?.height ?? 100
   const direction = obj.direction ?? 'right'
   const cy = h / 2
-  const stroke = selected ? '#8093F1' : (obj.strokeColor ?? '#000000')
-  const sw = selected ? 3 : (obj.strokeWidth ?? 2)
+  const stroke = selected && isPointerTool ? '#8093F1' : (obj.strokeColor ?? '#000000')
+  const sw = selected && isPointerTool ? 3 : (obj.strokeWidth ?? 2)
   const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
   const opacity = (obj as { opacity?: number }).opacity ?? 1
   const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
@@ -78,20 +91,27 @@ export function ArrowShape({
 
   const handlers = shapeHandlers(
     obj.objectId,
-    viewport,
+    viewportRef,
     canEdit,
     selected,
     onObjectDragEnd,
     onObjectClick,
-    isPointerTool
+    isPointerTool,
+    isSelecting,
+    {
+      ...(selectedIds && multiDragStartPositionsRef && _onMultiDragStart && _onMultiDragMove ? { selectedIds, multiDragStartPositionsRef, multiDragStartPointerRef, onMultiDragStart: _onMultiDragStart, onMultiDragMove: _onMultiDragMove } : {}),
+      ...(onObjectDragStart && { onObjectDragStart }),
+      ...(connectorToolActive && onConnectorHover && { connectorToolActive, onConnectorHover }),
+      isPenStrokeActive,
+    }
   )
 
   return (
     <>
       <Group
         ref={groupRef}
-        x={pos.x}
-        y={pos.y}
+        x={dragPreviewPosition?.x ?? pos.x}
+        y={dragPreviewPosition?.y ?? pos.y}
         opacity={opacity}
         {...handlers}
         onTransformEnd={onObjectResizeEnd ? handleTransformEnd : undefined}
@@ -121,9 +141,11 @@ export function ArrowShape({
           />
         )}
       </Group>
-      {selected && hasResizeHandler && canEdit && (
+      {selected && isPointerTool && hasResizeHandler && canEdit && (
         <Transformer ref={trRef} rotateEnabled={false} boundBoxFunc={boundBoxFunc} />
       )}
     </>
   )
 }
+
+export const ArrowShape = React.memo(ArrowShapeInner, areShapePropsEqual)

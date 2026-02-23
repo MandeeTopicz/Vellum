@@ -3,6 +3,7 @@
  */
 import type { CreateObjectInput } from '../objects'
 import type { BoardObject } from '../../types'
+import { getObjectBounds } from '../../utils/objectBounds'
 
 export const STICKY_COLORS: Record<string, string> = {
   yellow: '#fef08a',
@@ -63,6 +64,132 @@ function shapeStyle(obj: BoardObject) {
     opacity: o.opacity as number | undefined,
     cornerRadius: o.cornerRadius as number | undefined,
   }
+}
+
+const DEFAULT_MARGIN = 40
+
+/**
+ * Find a position for a rect so it does not overlap existing bounds (with margin).
+ * Used by AI generator to place new content outside existing objects.
+ * @param width - Width of the rect to place
+ * @param height - Height of the rect to place
+ * @param preferredCenter - Preferred center point (x, y)
+ * @param existingObjects - Existing board objects to avoid
+ * @param margin - Gap between new rect and existing objects (default 40)
+ * @returns Top-left { x, y } for the rect
+ */
+export function findNonOverlappingPosition(
+  width: number,
+  height: number,
+  preferredCenter: { x: number; y: number },
+  existingObjects: BoardObject[],
+  margin: number = DEFAULT_MARGIN
+): { x: number; y: number } {
+  const existingBounds = existingObjects.map((o) => getObjectBounds(o))
+  return findNonOverlappingPositionWithBounds(width, height, preferredCenter, existingBounds, margin)
+}
+
+/** Bounds from createInput for overlap checking */
+function createInputToBounds(input: CreateObjectInput): { left: number; top: number; right: number; bottom: number } | null {
+  if (input.type === 'line') {
+    return {
+      left: Math.min(input.start.x, input.end.x),
+      top: Math.min(input.start.y, input.end.y),
+      right: Math.max(input.start.x, input.end.x),
+      bottom: Math.max(input.start.y, input.end.y),
+    }
+  }
+  if ('position' in input) {
+    const dims = 'dimensions' in input ? input.dimensions : { width: 100, height: 100 }
+    const w = dims?.width ?? 100
+    const h = dims?.height ?? 100
+    return {
+      left: input.position.x,
+      top: input.position.y,
+      right: input.position.x + w,
+      bottom: input.position.y + h,
+    }
+  }
+  return null
+}
+
+/**
+ * Returns adjusted top-left position so a rect of (width, height) does not overlap
+ * existing objects. Uses viewport center as preferred placement when available.
+ * Also considers already-created items in this batch (createdItems).
+ */
+export function getAdjustedPosition(
+  ctx: {
+    objectsList: BoardObject[]
+    viewportCenter?: { x: number; y: number }
+    createdItems?: { objectId: string; createInput: CreateObjectInput }[]
+  },
+  intendedLeft: number,
+  intendedTop: number,
+  width: number,
+  height: number
+): { x: number; y: number } {
+  const vc = ctx.viewportCenter ?? { x: intendedLeft + width / 2, y: intendedTop + height / 2 }
+  const existingFromBoard = ctx.objectsList
+  const existingFromBatch = (ctx.createdItems ?? [])
+    .map((i) => createInputToBounds(i.createInput))
+    .filter((b): b is NonNullable<typeof b> => b != null)
+  const combinedBounds = [
+    ...existingFromBoard.map((o) => getObjectBounds(o)),
+    ...existingFromBatch,
+  ]
+  return findNonOverlappingPositionWithBounds(width, height, vc, combinedBounds)
+}
+
+/**
+ * Like findNonOverlappingPosition but accepts raw bounds array.
+ * @internal
+ */
+export function findNonOverlappingPositionWithBounds(
+  width: number,
+  height: number,
+  preferredCenter: { x: number; y: number },
+  existingBounds: { left: number; top: number; right: number; bottom: number }[],
+  margin: number = DEFAULT_MARGIN
+): { x: number; y: number } {
+  const preferredLeft = preferredCenter.x - width / 2
+  const preferredTop = preferredCenter.y - height / 2
+
+  const overlaps = (left: number, top: number): boolean => {
+    const right = left + width
+    const bottom = top + height
+    for (const b of existingBounds) {
+      const bl = b.left - margin
+      const bt = b.top - margin
+      const br = b.right + margin
+      const bb = b.bottom + margin
+      if (left < br && right > bl && top < bb && bottom > bt) return true
+    }
+    return false
+  }
+
+  if (!overlaps(preferredLeft, preferredTop)) {
+    return { x: preferredLeft, y: preferredTop }
+  }
+
+  const step = Math.max(width, height, margin) * 0.6
+  for (let ring = 1; ring < 12; ring++) {
+    const d = ring * step
+    const candidates: [number, number][] = [
+      [preferredLeft + d, preferredTop],
+      [preferredLeft + d, preferredTop + d],
+      [preferredLeft, preferredTop + d],
+      [preferredLeft - d, preferredTop + d],
+      [preferredLeft - d, preferredTop],
+      [preferredLeft - d, preferredTop - d],
+      [preferredLeft, preferredTop - d],
+      [preferredLeft + d, preferredTop - d],
+    ]
+    for (const [left, top] of candidates) {
+      if (!overlaps(left, top)) return { x: left, y: top }
+    }
+  }
+  return { x: preferredLeft, y: preferredTop }
 }
 
 /** Returns top-left (minX, minY) of bounding box for objects, used as paste anchor. */
@@ -257,6 +384,46 @@ export function objToCreateInput(obj: BoardObject, dx: number, dy: number): Crea
         dimensions: obj.dimensions,
         title: (obj as { title?: string }).title,
       }, obj)
+    case 'image': {
+      const img = obj as { url: string }
+      return withRotationAndLink({
+        type: 'image' as const,
+        position: { x: obj.position.x + dx, y: obj.position.y + dy },
+        dimensions: obj.dimensions,
+        url: img.url,
+      }, obj)
+    }
+    case 'document': {
+      const doc = obj as { url: string; fileName?: string; fileType?: string }
+      return withRotationAndLink({
+        type: 'document' as const,
+        position: { x: obj.position.x + dx, y: obj.position.y + dy },
+        dimensions: obj.dimensions,
+        url: doc.url,
+        fileName: doc.fileName,
+        fileType: doc.fileType,
+      }, obj)
+    }
+    case 'embed': {
+      const emb = obj as { url: string; embedType: 'youtube' | 'google-doc' }
+      return withRotationAndLink({
+        type: 'embed' as const,
+        position: { x: obj.position.x + dx, y: obj.position.y + dy },
+        dimensions: obj.dimensions,
+        url: emb.url,
+        embedType: emb.embedType,
+      }, obj)
+    }
+    case 'link-card': {
+      const lc = obj as { url: string; title?: string }
+      return withRotationAndLink({
+        type: 'link-card' as const,
+        position: { x: obj.position.x + dx, y: obj.position.y + dy },
+        dimensions: obj.dimensions,
+        url: lc.url,
+        title: lc.title,
+      }, obj)
+    }
     default:
       return null
   }

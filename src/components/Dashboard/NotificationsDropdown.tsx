@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { getBoard } from '../../services/board'
 import { acceptInvite, rejectInvite } from '../../services/invites'
 import type { BoardInvite } from '../../types'
 import './NotificationsDropdown.css'
@@ -20,12 +21,26 @@ export default function NotificationsDropdown({
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
+  const [boardNames, setBoardNames] = useState<Record<string, string>>({})
   const dropdownRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     if (open) onRefresh()
   }, [open, onRefresh])
+
+  useEffect(() => {
+    if (!open || invites.length === 0) return
+    const seen = new Set<string>()
+    invites.forEach((inv) => {
+      if (!seen.has(inv.boardId)) {
+        seen.add(inv.boardId)
+        getBoard(inv.boardId).then((b) => {
+          if (b) setBoardNames((prev) => ({ ...prev, [inv.boardId]: b.name || 'Untitled Board' }))
+        })
+      }
+    })
+  }, [open, invites])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -95,8 +110,10 @@ export default function NotificationsDropdown({
                 {invites.map((inv) => (
                   <li key={`${inv.boardId}-${inv.id}`} className="notifications-item">
                     <div className="notifications-item-info">
-                      <strong>{inv.invitedByName || inv.invitedBy}</strong>
-                      <span>invited you to a board ({inv.role} access)</span>
+                      <strong>{boardNames[inv.boardId] ?? '…'}</strong>
+                      <span>
+                        {inv.invitedByName || inv.invitedBy} invited you ({inv.role} access)
+                      </span>
                     </div>
                     <div className="notifications-item-actions">
                       <button

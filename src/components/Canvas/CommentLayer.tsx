@@ -1,4 +1,5 @@
 import { Group, Rect, Text } from 'react-konva'
+import { hashToColor } from '../../services/presence'
 import type { BoardComment } from '../../services/comments'
 
 function getUsername(authorName: string | null): string {
@@ -11,27 +12,32 @@ interface CommentLayerProps {
   comments: BoardComment[]
   onCommentClick: (comment: BoardComment) => void
   isPointerTool: boolean
+  isSelecting?: boolean
 }
 
 export default function CommentLayer({
   comments,
   onCommentClick,
   isPointerTool,
+  isSelecting = false,
 }: CommentLayerProps) {
   return (
     <>
       {comments.map((comment) => {
         const username = getUsername(comment.authorName)
-        const iconSize = 18
-        const hitPadding = 8
-        const hitWidth = iconSize + 4 + (username.length * 6) + hitPadding * 2
-        const hitHeight = iconSize + hitPadding * 2
+        const color = hashToColor(comment.authorId)
+        const paddingX = 10
+        const paddingY = 6
+        const fontSize = 11
+        const textWidth = username.length * 7
+        const boxWidth = textWidth + paddingX * 2
+        const boxHeight = fontSize + paddingY * 2
         return (
           <Group
             key={comment.id}
             x={comment.position.x}
             y={comment.position.y}
-            listening={isPointerTool}
+            listening={!isSelecting && isPointerTool}
             onClick={(e) => {
               e.cancelBubble = true
               onCommentClick(comment)
@@ -42,40 +48,33 @@ export default function CommentLayer({
             }}
           >
             <Rect
-              x={-hitPadding}
-              y={-hitPadding}
-              width={hitWidth}
-              height={hitHeight}
+              x={0}
+              y={0}
+              width={boxWidth}
+              height={boxHeight}
               fill="transparent"
-              listening={true}
+              listening={!isSelecting && isPointerTool}
             />
             <Rect
               x={0}
               y={0}
-              width={iconSize}
-              height={iconSize}
-              fill="#fff"
-              stroke="#8093F1"
-              strokeWidth={1.5}
-              cornerRadius={3}
+              width={boxWidth}
+              height={boxHeight}
+              fill="rgba(255,255,255,0.95)"
+              stroke={color}
+              strokeWidth={2}
+              cornerRadius={6}
               listening={false}
             />
             <Text
-              x={4}
-              y={2}
-              text="T"
-              fontSize={12}
-              fontStyle="bold"
-              fill="#8093F1"
-              listening={false}
-            />
-            <Text
-              x={iconSize + 4}
-              y={2}
+              x={paddingX}
+              y={paddingY}
               text={username}
-              fontSize={10}
-              fill="#374151"
+              fontSize={fontSize}
+              fill={color}
+              fontStyle="bold"
               listening={false}
+              width={textWidth}
             />
           </Group>
         )

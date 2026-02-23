@@ -4,15 +4,15 @@
 import { createObject } from '../objects'
 import { DEFAULT_STICKY_SIZE, DEFAULT_SHAPE_SIZE, DEFAULT_LINE_LENGTH, type BoardObjectType } from '../../types/objects'
 import { DEFAULT_TEXT_STYLE } from '../../types'
-import { resolveColor, STICKY_COLORS } from './shared'
+import { resolveColor, STICKY_COLORS, getAdjustedPosition } from './shared'
 import type { ToolExecutionContext } from './types'
 
 /** createStickyNote */
 export async function executeCreateStickyNote(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, createdItems, actions } = ctx
   const text: string = String(args.text ?? '')
-  const x: number = typeof args.x === 'number' ? args.x : 500
-  const y: number = typeof args.y === 'number' ? args.y : 500
+  let x: number = typeof args.x === 'number' ? args.x : 500
+  let y: number = typeof args.y === 'number' ? args.y : 500
   const width = typeof args.width === 'number' ? args.width : DEFAULT_STICKY_SIZE.width
   const height = typeof args.height === 'number' ? args.height : DEFAULT_STICKY_SIZE.height
   const fillColor =
@@ -23,6 +23,10 @@ export async function executeCreateStickyNote(ctx: ToolExecutionContext): Promis
   const textAlign: 'left' | 'center' | 'right' = args.alignment === 'center' || args.alignment === 'right' ? args.alignment : 'left'
   const fontSize = typeof args.fontSize === 'number' ? args.fontSize : DEFAULT_TEXT_STYLE.fontSize
   const isBold = args.isBold === true
+
+  const adjusted = getAdjustedPosition(ctx, x, y, width, height)
+  x = adjusted.x
+  y = adjusted.y
 
   const createInput = {
     type: 'sticky' as const,
@@ -42,8 +46,8 @@ export async function executeCreateStickyNote(ctx: ToolExecutionContext): Promis
 export async function executeCreateShape(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, createdItems, actions } = ctx
   const shapeType = (args.shapeType ?? 'rectangle') as BoardObjectType
-  const x: number = typeof args.x === 'number' ? args.x : 500
-  const y: number = typeof args.y === 'number' ? args.y : 500
+  let x: number = typeof args.x === 'number' ? args.x : 500
+  let y: number = typeof args.y === 'number' ? args.y : 500
   const w = typeof args.width === 'number' ? args.width : DEFAULT_SHAPE_SIZE.width
   const h = typeof args.height === 'number' ? args.height : DEFAULT_SHAPE_SIZE.height
   const fillColor =
@@ -54,15 +58,20 @@ export async function executeCreateShape(ctx: ToolExecutionContext): Promise<voi
       : resolveColor(args.color as string | undefined, '#000000')
   const cornerRadius = typeof args.cornerRadius === 'number' ? args.cornerRadius : 12
   const useTopLeft = typeof args.width === 'number' || typeof args.height === 'number'
-  const pos = useTopLeft ? { x, y } : { x: x - w / 2, y: y - h / 2 }
+  const intendedLeft = useTopLeft ? x : x - w / 2
+  const intendedTop = useTopLeft ? y : y - h / 2
+  const adjusted = getAdjustedPosition(ctx, intendedLeft, intendedTop, w, h)
+  const pos = { x: adjusted.x, y: adjusted.y }
 
   type ShapeCreateInput = Parameters<typeof createObject>[1]
   let createInput: ShapeCreateInput
   if (shapeType === 'line') {
+    const lineLeft = useTopLeft ? intendedLeft : x - DEFAULT_LINE_LENGTH / 2
+    const lineAdjusted = getAdjustedPosition(ctx, lineLeft, y, DEFAULT_LINE_LENGTH, 4)
     createInput = {
       type: 'line',
-      start: { x: x - DEFAULT_LINE_LENGTH / 2, y },
-      end: { x: x + DEFAULT_LINE_LENGTH / 2, y },
+      start: { x: lineAdjusted.x, y: lineAdjusted.y },
+      end: { x: lineAdjusted.x + DEFAULT_LINE_LENGTH, y: lineAdjusted.y },
       strokeColor,
       strokeWidth: 2,
     }
@@ -97,8 +106,8 @@ export async function executeCreateShape(ctx: ToolExecutionContext): Promise<voi
 export async function executeCreateTextBox(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, createdItems, actions } = ctx
   const text: string = String(args.text ?? '')
-  const x: number = typeof args.x === 'number' ? args.x : 500
-  const y: number = typeof args.y === 'number' ? args.y : 500
+  let x: number = typeof args.x === 'number' ? args.x : 500
+  let y: number = typeof args.y === 'number' ? args.y : 500
   const width = typeof args.width === 'number' ? args.width : 200
   const height = typeof args.height === 'number' ? args.height : 60
   const fontSize = typeof args.fontSize === 'number' ? args.fontSize : 16
@@ -111,6 +120,9 @@ export async function executeCreateTextBox(ctx: ToolExecutionContext): Promise<v
         ? 'center'
         : 'left'
   const textStyle = { ...DEFAULT_TEXT_STYLE, fontSize, fontColor, bold: isBold, textAlign }
+  const adjusted = getAdjustedPosition(ctx, x, y, width, height)
+  x = adjusted.x
+  y = adjusted.y
   const createInput = {
     type: 'text' as const,
     position: { x, y },

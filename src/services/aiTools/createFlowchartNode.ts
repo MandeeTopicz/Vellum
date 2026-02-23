@@ -2,6 +2,7 @@
  * AI tool: createFlowchartNode.
  */
 import { createObject } from '../objects'
+import { getAdjustedPosition } from './shared'
 import type { ToolExecutionContext } from './types'
 
 const baseStyle = { fillColor: 'transparent' as const, strokeColor: '#000000' as const, strokeWidth: 2 as const }
@@ -10,11 +11,14 @@ const baseStyle = { fillColor: 'transparent' as const, strokeColor: '#000000' as
 export async function executeCreateFlowchartNode(ctx: ToolExecutionContext): Promise<void> {
   const { boardId, args, createdItems, actions } = ctx
   const shapeType = (args.shapeType ?? 'rectangle') as string
-  const x = typeof args.x === 'number' ? args.x : 500
-  const y = typeof args.y === 'number' ? args.y : 500
+  let x = typeof args.x === 'number' ? args.x : 500
+  let y = typeof args.y === 'number' ? args.y : 500
   const w = typeof args.width === 'number' ? args.width : 120
   const h = typeof args.height === 'number' ? args.height : 80
   const text = (args.text ?? '') as string
+  const adjusted = getAdjustedPosition(ctx, x, y, w, h)
+  x = adjusted.x
+  y = adjusted.y
 
   let createInput: Parameters<typeof createObject>[1]
   if (shapeType === 'cylinder-vertical') {

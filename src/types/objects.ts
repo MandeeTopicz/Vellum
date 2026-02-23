@@ -64,6 +64,10 @@ export type BoardObjectType =
   | 'pen'
   | 'emoji'
   | 'frame'
+  | 'image'
+  | 'document'
+  | 'embed'
+  | 'link-card'
 
 /** Frame container: groups children with relative coordinates. Renders behind other objects. */
 export interface FrameObject extends BoardObjectBase, RotatableFields {
@@ -272,6 +276,18 @@ export interface LineObject extends BoardObjectBase {
   opacity?: number
   /** Arrow style for connection tools; default 'line' = plain line */
   connectionType?: ConnectionType
+  /** Optional: object this line's start point connects to (anchor-based movement) */
+  startObjectId?: string | null
+  /** Optional: object this line's end point connects to (anchor-based movement) */
+  endObjectId?: string | null
+  /** Optional: which anchor side on the start object (for smart connectors) */
+  startAnchor?: 'top' | 'right' | 'bottom' | 'left'
+  /** Optional: normalized position (0–1) along start edge for resize-invariant attachment */
+  startAnchorT?: number
+  /** Optional: which anchor side on the end object (for smart connectors) */
+  endAnchor?: 'top' | 'right' | 'bottom' | 'left'
+  /** Optional: normalized position (0–1) along end edge for resize-invariant attachment */
+  endAnchorT?: number
 }
 
 /** Stroke style for pen objects */
@@ -305,6 +321,42 @@ export interface EmojiObject extends BoardObjectBase, NestableFields, RotatableF
   fontSize?: number
 }
 
+/** Uploaded or linked image on canvas */
+export interface ImageObject extends BoardObjectBase, NestableFields, RotatableFields {
+  type: 'image'
+  position: Point
+  dimensions: { width: number; height: number }
+  url: string
+}
+
+/** Uploaded document (PDF, etc.) – rendered as card with icon and filename */
+export interface DocumentObject extends BoardObjectBase, NestableFields, RotatableFields {
+  type: 'document'
+  position: Point
+  dimensions: { width: number; height: number }
+  url: string
+  fileName?: string
+  fileType?: string
+}
+
+/** Embedded iframe (YouTube, Google Docs, etc.) */
+export interface EmbedObject extends BoardObjectBase, NestableFields, RotatableFields {
+  type: 'embed'
+  position: Point
+  dimensions: { width: number; height: number }
+  url: string
+  embedType: 'youtube' | 'google-doc'
+}
+
+/** Link card – displays URL as clickable card (not sticky) */
+export interface LinkCardObject extends BoardObjectBase, NestableFields, RotatableFields {
+  type: 'link-card'
+  position: Point
+  dimensions: { width: number; height: number }
+  url: string
+  title?: string
+}
+
 export type BoardObject =
   | StickyObject
   | FrameObject
@@ -324,6 +376,10 @@ export type BoardObject =
   | TextObject
   | PenObject
   | EmojiObject
+  | ImageObject
+  | DocumentObject
+  | EmbedObject
+  | LinkCardObject
 
 /** Normalized client state: objectId -> object */
 export type ObjectsMap = Record<string, BoardObject>

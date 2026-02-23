@@ -21,13 +21,15 @@
     "test:e2e:emulated": "VITE_USE_FIREBASE_EMULATORS=true firebase emulators:exec --only auth,firestore,database,functions 'playwright test'"
   },
   "dependencies": {
+    "@google-cloud/vision": "^5.3.4",
     "firebase": "^11.0.0",
     "konva": "^10.2.0",
     "lucide-react": "^0.564.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-konva": "^19.2.2",
-    "react-router-dom": "^7.13.0"
+    "react-router-dom": "^7.13.0",
+    "use-image": "^1.1.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
