@@ -1,32 +1,66 @@
 {
-  "storage":{"rules":"storage.rules"},"hosting": {
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
     "public": "dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "headers": [
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [],
+    "rewrites": [
+      {
+        "source": "/handwriting-recognize",
+        "function": {
+          "functionId": "api",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/**",
+        "function": {
+          "functionId": "api",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "**",
-        "headers": [
-          {
-            "key": "Cross-Origin-Opener-Policy",
-            "value": "same-origin-allow-popups"
-          }
-        ]
+        "destination": "/index.html"
       }
-    ],
-    "rewrites": [
-      {"source": "/api/**", "function": "api"},
-      {"source": "**", "destination": "/index.html"}
     ]
   },
-  "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"},
-  "database": {"rules": "database.rules.json"},
-  "functions": {"source": "functions", "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]},
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "functions": {
+    "source": "functions",
+    "predeploy": [
+      "npm --prefix \"$RESOURCE_DIR\" run build"
+    ]
+  },
   "emulators": {
-    "auth": {"port": 9099},
-    "firestore": {"port": 8080},
-    "database": {"port": 9000},
-    "functions": {"port": 5001},
-    "ui": {"enabled": true, "port": 4000},
+    "auth": {
+      "port": 9099
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "database": {
+      "port": 9000
+    },
+    "functions": {
+      "port": 5001
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
     "singleProjectMode": true
   }
 }

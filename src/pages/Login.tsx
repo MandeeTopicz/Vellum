@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff } from 'lucide-react'
-import { signIn, signUp, signInWithGoogle } from '../services/firebase'
+import { signIn, signUp, signInWithGoogleRedirect } from '../services/firebase'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import './Login.css'
 
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useAuth()
+  const { user, redirectError, clearRedirectError } = useAuth()
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard'
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
@@ -24,15 +24,17 @@ export default function Login() {
     navigate(from, { replace: true })
   }, [user, navigate, from])
 
+  const displayError = error ?? redirectError
+
   async function handleGoogleSignIn() {
     setError(null)
+    clearRedirectError()
     setLoading(true)
     try {
-      await signInWithGoogle()
-      navigate(from, { replace: true })
+      await signInWithGoogleRedirect()
+      // Redirect will navigate away; on return, AuthContext completes auth and useEffect navigates to `from`
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in with Google')
-    } finally {
       setLoading(false)
     }
   }
@@ -118,7 +120,7 @@ export default function Login() {
               {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
           </div>
-          {error && <p className="login-error">{error}</p>}
+          {displayError && <p className="login-error">{displayError}</p>}
           <button type="submit" disabled={loading}>
             {loading ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}
           </button>
@@ -129,6 +131,7 @@ export default function Login() {
           onClick={() => {
             setIsSignUp((v) => !v)
             setError(null)
+            clearRedirectError()
             setUsername('')
           }}
         >

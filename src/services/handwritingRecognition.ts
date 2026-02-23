@@ -65,12 +65,17 @@ export async function penStrokesToImageBlob(penObjects: PenObject[]): Promise<Bl
 
 /**
  * Returns the API base URL for handwriting recognition.
- * In production (hosting) use same-origin /api. In dev use Cloud Functions URL.
+ * Uses VITE_OCR_API_URL if set. In production uses same-origin (Hosting rewrite forwards /handwriting-recognize).
+ * In dev uses Cloud Functions URL. For emulators: VITE_OCR_API_URL=http://127.0.0.1:5001/vellum-6f172/us-central1/api
  */
 function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_OCR_API_URL
+  if (envUrl && typeof envUrl === 'string') {
+    return envUrl.replace(/\/$/, '')
+  }
   if (import.meta.env.DEV) {
     const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID
-    if (!projectId) throw new Error('VITE_FIREBASE_PROJECT_ID is required for dev')
+    if (!projectId) throw new Error('VITE_FIREBASE_PROJECT_ID is required')
     return `https://us-central1-${projectId}.cloudfunctions.net/api`
   }
   return window.location.origin

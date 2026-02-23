@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -11,6 +12,9 @@ import { subscribeToAuth, handleGoogleRedirectResult } from '../services/firebas
 interface AuthContextValue {
   user: User | null
   loading: boolean
+  /** Set when returning from Google redirect but getRedirectResult failed (e.g. redirect_uri_mismatch) */
+  redirectError: string | null
+  clearRedirectError: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -18,17 +22,21 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [redirectError, setRedirectError] = useState<string | null>(null)
+
+  const clearRedirectError = useCallback(() => setRedirectError(null), [])
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null
     const init = async () => {
       try {
         await handleGoogleRedirectResult()
-      } catch {
-        /* ignore - not returning from Google redirect */
+      } catch (err) {
+        setRedirectError(err instanceof Error ? err.message : 'Sign-in failed. Check OAuth redirect URI and authorized domains.')
       }
       unsubscribe = subscribeToAuth((u) => {
         setUser(u)
+        if (u) setRedirectError(null)
         setLoading(false)
       })
     }
@@ -39,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ user, loading, redirectError, clearRedirectError }}>
       {children}
     </AuthContext.Provider>
   )

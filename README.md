@@ -59,7 +59,10 @@ Optional (for local emulators):
 
 ```env
 VITE_USE_FIREBASE_EMULATORS=true
+VITE_OCR_API_URL=http://127.0.0.1:5001/vellum-6f172/us-central1/api
 ```
+
+Optional (handwriting OCR): `VITE_OCR_API_URL` overrides the OCR API base. Defaults to Cloud Functions URL. For emulators, set to `http://127.0.0.1:5001/vellum-6f172/us-central1/api`.
 
 ### 3. Run locally
 
@@ -77,6 +80,18 @@ cd functions && npm install && cd ..
 npm run build
 firebase deploy
 ```
+
+**If auth works locally but not on the deployed URL:**
+
+1. **OAuth redirect URI** – [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → your OAuth 2.0 Client ID (Web client). In **Authorized redirect URIs**, add `https://vellum-6f172.firebaseapp.com/__/auth/handler`. In **Authorized JavaScript origins**, add `https://vellum-6f172.web.app` and `https://vellum-6f172.firebaseapp.com`.
+
+2. **Firebase Authorized Domains** – [Firebase Console](https://console.firebase.google.com/) → Authentication → Settings → Authorized domains. Ensure: `vellum-6f172.web.app`, `vellum-6f172.firebaseapp.com`, `localhost`.
+
+3. **Env vars at build time** – Firebase Hosting serves prebuilt `dist`. Vite inlines `VITE_*` at build time; `.env.local` must exist when running `npm run build`.
+
+4. **COOP/COEP headers** – `firebase.json` hosting headers are empty. If you add custom headers, avoid `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy` values that block auth popups/redirects.
+
+5. **Check the browser console** on the deployed URL after attempting sign-in. Errors like `redirect_uri_mismatch` or `unauthorized_domain` will be more descriptive. The Login page also surfaces redirect errors when `getRedirectResult` fails after returning from Google.
 
 **AI Agent (Cloud Functions):** Set the OpenAI API key before deploying functions:
 
