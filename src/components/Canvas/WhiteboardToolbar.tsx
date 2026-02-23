@@ -127,11 +127,11 @@ export default function WhiteboardToolbar({
     connections: {
       label: 'Connections',
       shapes: [
-        { type: 'arrow-curved', label: 'Curved Arrow ↺' },
-        { type: 'arrow-curved-cw', label: 'Curved Arrow ↻' },
-        { type: 'arrow-elbow-bidirectional', label: 'Bidirectional Elbow Arrow' },
-        { type: 'arrow-straight', label: 'Straight Arrow' },
-        { type: 'arrow-double', label: 'Double Arrow' },
+        { type: 'arrow-straight', label: 'Single-ended Straight Arrow' },
+        { type: 'arrow-double', label: 'Double-ended Straight Arrow' },
+        { type: 'arrow-elbow-bidirectional', label: 'Right Angle Arrow' },
+        { type: 'arrow-curved', label: 'Counter-clockwise Curved Arrow' },
+        { type: 'arrow-curved-cw', label: 'Clockwise Curved Arrow' },
       ],
     },
     basic: {

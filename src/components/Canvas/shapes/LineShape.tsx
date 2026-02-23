@@ -1,5 +1,5 @@
 /**
- * Renders line/connector shapes: plain line, arrow-straight, arrow-curved, arrow-elbow, arrow-double.
+ * Renders line/connector shapes: plain line, arrow-straight, arrow-double, arrow-elbow, arrow-curved.
  */
 import { useRef } from 'react'
 import { Group, Rect, Line, Arrow, Transformer } from 'react-konva'
@@ -17,6 +17,7 @@ import {
   areShapePropsEqual,
   type ResizeSnapshot,
 } from './shared'
+import { getConnectorPath, isCurvedPath, pointerAtBeginning, pointerAtEnd, type ConnectionType } from '../../../utils/connectorPaths'
 import React from 'react'
 
 interface LineShapeProps extends BaseShapeProps {
@@ -57,7 +58,7 @@ function LineShapeInner({
   const end = ep?.end ?? obj.end
 
   const { objectId, strokeColor, strokeWidth, connectionType } = obj
-  const ct = connectionType ?? 'line'
+  const ct: ConnectionType = (connectionType ?? 'line') as ConnectionType
   const strokeStyle = (obj as { strokeStyle?: 'solid' | 'dashed' | 'dotted' }).strokeStyle ?? 'solid'
   const opacity = (obj as { opacity?: number }).opacity ?? 1
   const dash = strokeStyle === 'dashed' ? [10, 5] : strokeStyle === 'dotted' ? [2, 4] : undefined
@@ -73,24 +74,8 @@ function LineShapeInner({
   const ly1 = start.y - minY
   const lx2 = end.x - minX
   const ly2 = end.y - minY
-  const points = [lx1, ly1, lx2, ly2]
+  const points = getConnectorPath(ct, lx1, ly1, lx2, ly2)
   const isArrow = ct !== 'line'
-  const isElbowBidirectional = ct === 'arrow-elbow-bidirectional'
-  const elbowX = Math.abs(dx) > Math.abs(dy) ? lx2 : lx1
-  const elbowY = Math.abs(dx) > Math.abs(dy) ? ly1 : ly2
-  const elbowPoints = [lx1, ly1, elbowX, elbowY, lx2, ly2]
-  const curvePoints =
-    ct === 'arrow-curved' || ct === 'arrow-curved-cw'
-      ? (() => {
-          const midX = (lx1 + lx2) / 2
-          const midY = (ly1 + ly2) / 2
-          const perpX = -(ly2 - ly1) * 0.2
-          const perpY = (lx2 - lx1) * 0.2
-          /** Clockwise (cw) = bows down/right = positive offset; counter-clockwise = bows up/left = negative */
-          const sign = ct === 'arrow-curved-cw' ? 1 : -1
-          return [lx1, ly1, midX + sign * perpX, midY + sign * perpY, lx2, ly2]
-        })()
-      : null
 
   const hasResizeHandler = !!onObjectResizeEnd
   useShapeTransform(selected, hasResizeHandler, trRef, groupRef)
@@ -114,24 +99,9 @@ function LineShapeInner({
     }
     const line = node.findOne('Line') as Konva.Line | undefined
     const arrow = node.findOne('Arrow') as Konva.Arrow | undefined
-    const shapeNode = line ?? arrow
-    if (shapeNode) {
-      let newPts: number[]
-      if (ct === 'arrow-curved' || ct === 'arrow-curved-cw') {
-        const midX = newDx / 2
-        const midY = newDy / 2
-        const perpX = -newDy * 0.2
-        const perpY = newDx * 0.2
-        const sign = ct === 'arrow-curved-cw' ? 1 : -1
-        newPts = [0, 0, midX + sign * perpX, midY + sign * perpY, newDx, newDy]
-      } else if (isElbowBidirectional) {
-        const ex = Math.abs(newDx) > Math.abs(newDy) ? newDx : 0
-        const ey = Math.abs(newDx) > Math.abs(newDy) ? 0 : newDy
-        newPts = [0, 0, ex, ey, newDx, newDy]
-      } else {
-        newPts = [0, 0, newDx, newDy]
-      }
-      shapeNode.points(newPts)
+    const shape = line ?? arrow
+    if (shape) {
+      shape.points(getConnectorPath(ct, 0, 0, newDx, newDy))
     }
   }
 
@@ -216,24 +186,9 @@ function LineShapeInner({
     }
     const line = node.findOne('Line') as Konva.Line | undefined
     const arrow = node.findOne('Arrow') as Konva.Arrow | undefined
-    const shapeNode = line ?? arrow
-    if (shapeNode) {
-      let newPts: number[]
-      if (ct === 'arrow-curved' || ct === 'arrow-curved-cw') {
-        const midX = newDx / 2
-        const midY = newDy / 2
-        const perpX = -newDy * 0.2
-        const perpY = newDx * 0.2
-        const sign = ct === 'arrow-curved-cw' ? 1 : -1
-        newPts = [0, 0, midX + sign * perpX, midY + sign * perpY, newDx, newDy]
-      } else if (isElbowBidirectional) {
-        const ex = Math.abs(newDx) > Math.abs(newDy) ? newDx : 0
-        const ey = Math.abs(newDx) > Math.abs(newDy) ? 0 : newDy
-        newPts = [0, 0, ex, ey, newDx, newDy]
-      } else {
-        newPts = [0, 0, newDx, newDy]
-      }
-      shapeNode.points(newPts)
+    const shape = line ?? arrow
+    if (shape) {
+      shape.points(getConnectorPath(ct, 0, 0, newDx, newDy))
       onObjectResizeEnd(objectId, { start: newStart, end: newEnd })
     }
   }
@@ -277,12 +232,12 @@ function LineShapeInner({
         />
         {isArrow ? (
           <Arrow
-            points={ct === 'arrow-curved' || ct === 'arrow-curved-cw' ? curvePoints! : isElbowBidirectional ? elbowPoints : points}
-            tension={ct === 'arrow-curved' || ct === 'arrow-curved-cw' ? 0.5 : 0}
+            points={points}
+            tension={isCurvedPath(ct) ? 0.5 : 0}
             pointerLength={10}
             pointerWidth={10}
-            pointerAtBeginning={ct === 'arrow-double' || isElbowBidirectional}
-            pointerAtEnd
+            pointerAtBeginning={pointerAtBeginning(ct)}
+            pointerAtEnd={pointerAtEnd(ct)}
             fill={selected && isPointerTool ? '#8093F1' : strokeColor ?? '#000'}
             stroke={selected && isPointerTool ? '#8093F1' : strokeColor ?? '#000'}
             strokeWidth={selected && isPointerTool ? 3 : strokeWidth ?? 2}

@@ -5,6 +5,7 @@
  */
 import { memo } from 'react'
 import { getTemplatePreviewObjects, getCreateInputsBbox } from '../../utils/templates'
+import { pathRightAngle, pathCurvedClockwise, pathCurvedCounterClockwise } from '../../utils/connectorPaths'
 import { fitToRect } from '../../utils/scenePreview'
 import './TemplatePreviewThumbnail.css'
 
@@ -158,12 +159,27 @@ function TemplatePreviewThumbnailComponent({
         const y1 = inp.start.y
         const x2 = inp.end.x
         const y2 = inp.end.y
-        const midX = (x1 + x2) / 2
-        const midY = (y1 + y2) / 2
-        const perp = (ct === 'arrow-curved-cw' ? -1 : 1) * 0.2
-        const cx = midX + perp * -(y2 - y1)
-        const cy = midY + perp * (x2 - x1)
+        const pts = ct === 'arrow-curved-cw' ? pathCurvedClockwise(x1, y1, x2, y2) : pathCurvedCounterClockwise(x1, y1, x2, y2)
+        const cx = pts[2]
+        const cy = pts[3]
         const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`
+        elements.push(
+          <path
+            key={key}
+            d={d}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={strokeW}
+            markerEnd={isArrow ? 'url(#template-preview-arrow)' : undefined}
+          />
+        )
+      } else if (ct === 'arrow-elbow-bidirectional') {
+        const x1 = inp.start.x
+        const y1 = inp.start.y
+        const x2 = inp.end.x
+        const y2 = inp.end.y
+        const pts = pathRightAngle(x1, y1, x2, y2)
+        const d = `M ${pts[0]} ${pts[1]} L ${pts[2]} ${pts[3]} L ${pts[4]} ${pts[5]} L ${pts[6]} ${pts[7]}`
         elements.push(
           <path
             key={key}

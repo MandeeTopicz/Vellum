@@ -249,10 +249,6 @@ export default function BoardPage() {
     return expanded
   }, [tools.selectedIds, objects])
 
-  const handleUploadClick = useCallback(() => {
-    uploadFileInputRef.current?.click()
-  }, [])
-
   const events = useBoardEvents({
     data,
     tools,
